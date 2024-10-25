@@ -40,5 +40,10 @@
   },
   "engines": {
     "node": ">=18.14.0"
+  },
+  "dependencies": {
+    "mina-fungible-token": "^1.0.0",
+    "mina-signer": "^3.0.7",
+    "redis": "^4.7.0"
   }
 }
