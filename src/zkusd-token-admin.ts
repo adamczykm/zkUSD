@@ -4,25 +4,19 @@ import {
   method,
   PublicKey,
   SmartContract,
-  State,
-  state,
-  UInt64,
   Permissions,
   DeployArgs,
-  Provable,
 } from 'o1js';
 import { FungibleTokenAdminBase } from 'mina-fungible-token';
-import { ZKUSDOrchestrator } from './ZKUSDOrchestrator.js';
+import { ZkUsdVault } from './zkusd-vault.js';
 
-export class ZKUSDAdmin
+export class ZkUsdAdmin
   extends SmartContract
   implements FungibleTokenAdminBase
 {
-  @state(PublicKey) orchestratorPublicKey = State<PublicKey>();
-
-  async deploy(args: DeployArgs & { orchestratorPublicKey: PublicKey }) {
+  async deploy(args: DeployArgs) {
     await super.deploy(args);
-    this.orchestratorPublicKey.set(args.orchestratorPublicKey);
+
     // Set permissions to prevent unauthorized updates
     this.account.permissions.set({
       ...Permissions.default(),
@@ -34,22 +28,16 @@ export class ZKUSDAdmin
 
   @method.returns(Bool)
   public async canMint(_accountUpdate: AccountUpdate) {
-    // Only allow minting if called by the zkUSDOrchestrator
-    const zkUSDOrchestrator = new ZKUSDOrchestrator(
-      this.orchestratorPublicKey.getAndRequireEquals()
-    );
-
-    return await zkUSDOrchestrator.assertInteractionFlag();
+    //Only allow minting if called by a zkUSDVault
+    const zkUSDVault = new ZkUsdVault(_accountUpdate.publicKey);
+    return await zkUSDVault.assertInteractionFlag();
   }
 
   @method.returns(Bool)
   public async canBurn(_accountUpdate: AccountUpdate) {
-    // Only allow burning if called by the zkUSDOrchestrator
-    const zkUSDOrchestrator = new ZKUSDOrchestrator(
-      this.orchestratorPublicKey.getAndRequireEquals()
-    );
-
-    return await zkUSDOrchestrator.assertInteractionFlag();
+    // Only allow burning if called by a zkUSDVault
+    const zkUSDVault = new ZkUsdVault(_accountUpdate.publicKey);
+    return await zkUSDVault.assertInteractionFlag();
   }
 
   // Implement other required methods

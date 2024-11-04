@@ -35,15 +35,13 @@
     "ts-jest": "^29.2.4",
     "typescript": "^5.4.5"
   },
-  "peerDependencies": {
-    "o1js": "^1.*"
-  },
   "engines": {
     "node": ">=18.14.0"
   },
   "dependencies": {
     "mina-fungible-token": "^1.0.0",
     "mina-signer": "^3.0.7",
+    "o1js": "^1.*",
     "redis": "^4.7.0"
   }
 }

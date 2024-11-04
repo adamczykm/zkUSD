@@ -10,15 +10,12 @@ import {
   UInt8,
   Bool,
   PublicKey,
+  Experimental,
 } from 'o1js';
-import {
-  ZKUSDOrchestrator,
-  CDPPosition,
-} from '../contracts/ZKUSDOrchestrator.js';
-import { ZKUSDAdmin } from '../contracts/ZKUSDAdmin.js';
+import { ZkUsdVault } from '../zkusd-vault.js';
+import { ZkUsdAdmin } from '../zkusd-token-admin.js';
 import { equal } from 'node:assert';
-import { CDPStateManager } from '../utils/CDPLocalStateManager.js';
-import { Oracle } from '../utils/Oracle.js';
+import { Oracle } from '../oracle.js';
 import { FungibleToken } from 'mina-fungible-token';
 
 // Constants and variables
@@ -33,34 +30,70 @@ Mina.setActiveInstance(Local);
 const [deployer, alice, bob] = Local.testAccounts;
 
 // Create the oracle
-const oracleKeyPair = PrivateKey.randomKeypair();
-const oracle = new Oracle(oracleKeyPair.privateKey);
+const oracle = new Oracle(Local);
 
 // Set up FungibleToken AdminContract
-FungibleToken.AdminContract = ZKUSDAdmin;
+FungibleToken.AdminContract = ZkUsdAdmin;
 
 // Create key pairs and contracts
-const zkUSDOrchestratorKeyPair = PrivateKey.randomKeypair();
-const zkUSDOrchestratorContract = new ZKUSDOrchestrator(
-  zkUSDOrchestratorKeyPair.publicKey
-);
 
-const zkUSDAdminKeyPair = PrivateKey.randomKeypair();
-const zkUSDAdminContract = new ZKUSDAdmin(zkUSDAdminKeyPair.publicKey);
+const aliceCDPKeyPair = {
+  privateKey: PrivateKey.fromBase58(
+    'EKEoFYyHic5tuKE5GMNWbQFxrKLXMrazbxJqwrtw3dTLV9auQanM'
+  ),
+  publicKey: PublicKey.fromBase58(
+    'B62qqjGxQbMpQTbStgN8nM7C1wXvUfQYqM3kXc34hLqnBH2WanCDd49'
+  ),
+};
 
-const zkUSDTokenKeyPair = PrivateKey.randomKeypair();
-const zkUSDTokenContract = new FungibleToken(zkUSDTokenKeyPair.publicKey);
+const bobCDPKeyPair = {
+  privateKey: PrivateKey.fromBase58(
+    'EKF8rqoK5WvhUQZCzeDVKsJFUJpmXEZpykQ8H6LGKkcuFhnCb7jm'
+  ),
+  publicKey: PublicKey.fromBase58(
+    'B62qj3WKvDP1brqZsMeNxBWZ324bDmkbiVqkYa7dMzHhm2oXdB2yuYV'
+  ),
+};
 
-// Create the CDP State Manager
-console.log('Creating CDP State Manager...');
-const cdpStateManager = new CDPStateManager(zkUSDOrchestratorKeyPair.publicKey);
-await cdpStateManager.initialize();
+const adminKeyPair = {
+  privateKey: PrivateKey.fromBase58(
+    'EKFPts6KALweqsniSsnq3eCWRskWtMaZdBjoyJ8AZuX2yuZPbmEg'
+  ),
+  publicKey: PublicKey.fromBase58(
+    'B62qmrVkuYGu3NU4apAALjxcZVLGN5n2hdPSpfJghhHpjyjQbMWDtbM'
+  ),
+};
+
+const tokenKeyPair = {
+  privateKey: PrivateKey.fromBase58(
+    'EKDveJ7bFB2SEFU52rgob94xa9NV5fVwarpDKGSQ6TPkmtb9MNd9'
+  ),
+  publicKey: PublicKey.fromBase58(
+    'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
+  ),
+};
+
+const adminContract = new ZkUsdAdmin(adminKeyPair.publicKey);
+const tokenContract = new FungibleToken(tokenKeyPair.publicKey);
+const aliceCDPContract = new ZkUsdVault(aliceCDPKeyPair.publicKey);
+const bobCDPContract = new ZkUsdVault(bobCDPKeyPair.publicKey);
+
+const aliceSecret = Field.random();
+const bobSecret = Field.random();
+
+if (useProof) {
+  //compile the contracts
+  await ZkUsdVault.compile();
+  await ZkUsdAdmin.compile();
+  await FungibleToken.compile();
+}
 
 // Helper function to execute transactions
 async function executeTransaction(
   sender: PublicKey,
   signKeys: PrivateKey[],
-  transactionCallback: () => Promise<void>
+  transactionCallback: () => Promise<void>,
+  printTx: boolean = false
 ) {
   const tx = await Mina.transaction(
     {
@@ -68,16 +101,27 @@ async function executeTransaction(
     },
     transactionCallback
   );
-  await tx.prove();
-  tx.sign(signKeys);
-  console.log(tx.toPretty());
-  const sentTx = await tx.send();
-  const txResult = await sentTx.wait();
-  if (txResult.status !== 'included') {
-    throw new Error(`Transaction failed with status ${txResult.status}`);
+
+  if (printTx) {
+    console.log(tx.toPretty());
   }
 
-  return txResult;
+  try {
+    await tx.prove();
+    tx.sign(signKeys);
+    const sentTx = await tx.send();
+    const txResult = await sentTx.wait();
+    if (txResult.status !== 'included') {
+      console.log('Transaction failed with status', txResult.toPretty());
+      throw new Error(`Transaction failed with status ${txResult.status}`);
+    }
+
+    return txResult;
+  } catch (error) {
+    console.log(tx.toPretty());
+    console.log('With transaction:', error);
+    process.exit(1);
+  }
 }
 
 // Function to format balances
@@ -92,38 +136,27 @@ async function printState() {
   const { price, signature } = oracle.getSignedPrice();
   const aliceMinaBalance = Mina.getBalance(alice).toBigInt();
   const aliceZKUSDBalance = (
-    await zkUSDTokenContract.getBalanceOf(alice)
+    await tokenContract.getBalanceOf(alice)
   ).toBigInt();
+  const aliceCDPZKUSDBalance = (
+    await tokenContract.getBalanceOf(aliceCDPContract.address)
+  ).toBigInt();
+
   const bobMinaBalance = Mina.getBalance(bob).toBigInt();
-  const bobZKUSDBalance = (
-    await zkUSDTokenContract.getBalanceOf(bob)
+  const bobZKUSDBalance = (await tokenContract.getBalanceOf(bob)).toBigInt();
+  const bobCDPZKUSDBalance = (
+    await tokenContract.getBalanceOf(bobCDPContract.address)
   ).toBigInt();
 
-  const aliceCDP = await cdpStateManager.getCDPPosition(
-    Poseidon.hash(alice.toFields())
-  );
-  const bobCDP = await cdpStateManager.getCDPPosition(
-    Poseidon.hash(bob.toFields())
-  );
-
-  let aliceHealthFactor = zkUSDOrchestratorContract.calculateHealthFactor(
-    aliceCDP.collateralAmount,
-    aliceCDP.debtAmount,
-    price
-  );
-
-  let bobHealthFactor = zkUSDOrchestratorContract.calculateHealthFactor(
-    bobCDP.collateralAmount,
-    bobCDP.debtAmount,
+  //Get the health factor
+  let aliceHealthFactor = aliceCDPContract.calculateHealthFactor(
+    aliceCDPContract.collateralAmount.get(),
+    aliceCDPContract.debtAmount.get(),
     price
   );
 
   if (aliceHealthFactor.toBigInt() === UInt64.MAXINT().toBigInt()) {
     aliceHealthFactor = UInt64.from(0);
-  }
-
-  if (bobHealthFactor.toBigInt() === UInt64.MAXINT().toBigInt()) {
-    bobHealthFactor = UInt64.from(0);
   }
 
   console.log('\n--- State ---');
@@ -135,271 +168,183 @@ async function printState() {
   console.log(`Alice's CDP Position:`);
   console.log(
     `  Collateral Amount: ${formatBalance(
-      aliceCDP.collateralAmount.toBigInt()
+      aliceCDPContract.collateralAmount.get().toBigInt()
     )} MINA`
   );
   console.log(
-    `  Debt Amount: ${formatBalance(aliceCDP.debtAmount.toBigInt())} zkUSD`
-  );
-  console.log(`Alice's Health Factor: ${aliceHealthFactor}`);
-  console.log(`\nBob's Public Key: ${bob.toBase58()}`);
-  console.log(`Bob's Mina Balance: ${formatBalance(bobMinaBalance)} MINA`);
-  console.log(`Bob's zkUSD Balance: ${formatBalance(bobZKUSDBalance)} zkUSD`);
-  console.log(`Bob's CDP Position:`);
-  console.log(
-    `  Collateral Amount: ${formatBalance(
-      bobCDP.collateralAmount.toBigInt()
-    )} MINA`
+    `  Debt Amount: ${formatBalance(
+      aliceCDPContract.debtAmount.get().toBigInt()
+    )} zkUSD`
   );
   console.log(
-    `  Debt Amount: ${formatBalance(bobCDP.debtAmount.toBigInt())} zkUSD`
+    `  CDP zkUSD Balance: ${formatBalance(aliceCDPZKUSDBalance)} zkUSD`
   );
-  console.log(`Bob's Health Factor: ${bobHealthFactor}`);
+  console.log(`  Health Factor: ${aliceHealthFactor}`);
+
+  // Only show Bob's details if his CDP exists (has collateral)
+  try {
+    let bobHealthFactor = bobCDPContract.calculateHealthFactor(
+      bobCDPContract.collateralAmount.get(),
+      bobCDPContract.debtAmount.get(),
+      price
+    );
+
+    if (bobHealthFactor.toBigInt() === UInt64.MAXINT().toBigInt()) {
+      bobHealthFactor = UInt64.from(0);
+    }
+
+    const bobCollateral = bobCDPContract.collateralAmount.get();
+
+    console.log(`\nBob's Public Key: ${bob.toBase58()}`);
+    console.log(`Bob's Mina Balance: ${formatBalance(bobMinaBalance)} MINA`);
+    console.log(`Bob's zkUSD Balance: ${formatBalance(bobZKUSDBalance)} zkUSD`);
+    console.log(`Bob's CDP Position:`);
+    console.log(
+      `  Collateral Amount: ${formatBalance(bobCollateral.toBigInt())} MINA`
+    );
+    console.log(
+      `  Debt Amount: ${formatBalance(
+        bobCDPContract.debtAmount.get().toBigInt()
+      )} zkUSD`
+    );
+    console.log(
+      `  CDP zkUSD Balance: ${formatBalance(bobCDPZKUSDBalance)} zkUSD`
+    );
+    console.log(`  Health Factor: ${bobHealthFactor}`);
+  } catch (error) {
+    // If Bob's CDP doesn't exist yet, we'll skip printing his details
+  }
+
   console.log('-------------\n');
 }
 
 // Main function to run the interactions
 async function main() {
-  // Get the initial price and signature from the oracle
-  const { price, signature } = oracle.getSignedPrice();
-
   // Deploy the zkUSDToken and Admin contracts
   console.log('Deploying zkUSD Token and Admin contracts...');
   await executeTransaction(
     deployer,
-    [deployer.key, zkUSDAdminKeyPair.privateKey, zkUSDTokenKeyPair.privateKey],
+    [deployer.key, adminKeyPair.privateKey, tokenKeyPair.privateKey],
     async () => {
       AccountUpdate.fundNewAccount(deployer, 3);
-      await zkUSDAdminContract.deploy({
-        orchestratorPublicKey: zkUSDOrchestratorKeyPair.publicKey,
-      });
-      await zkUSDTokenContract.deploy({
+      await adminContract.deploy({});
+      await tokenContract.deploy({
         symbol: 'zkUSD',
         src: 'https://github.com/MinaFoundation/mina-fungible-token/blob/main/FungibleToken.ts',
       });
-      await zkUSDTokenContract.initialize(
-        zkUSDAdminKeyPair.publicKey,
+      await tokenContract.initialize(
+        adminKeyPair.publicKey,
         UInt8.from(9),
         Bool(false)
       );
     }
   );
   console.log('zkUSD Token and Admin contracts deployed.');
-  await printState();
+  console.log('--------------------------------');
 
   // Deploy the zkUSD Orchestrator contract
-  console.log('Deploying zkUSD Orchestrator contract...');
+  console.log("Deploying Alice's CDP contract...");
+
   await executeTransaction(
-    deployer,
-    [deployer.key, zkUSDOrchestratorKeyPair.privateKey],
+    alice,
+    [alice.key, aliceCDPKeyPair.privateKey],
     async () => {
-      AccountUpdate.fundNewAccount(deployer, 1);
-      await zkUSDOrchestratorContract.deploy({
-        oraclePublicKey: oracle.publicKey,
-        cdpTreeCommitment: cdpStateManager.getCDPRoot(),
-        cdpOwnershipTreeCommitment: cdpStateManager.getCDPOwnershipRoot(),
-        zkUSDTokenAddress: zkUSDTokenKeyPair.publicKey,
+      AccountUpdate.fundNewAccount(alice, 1);
+      await aliceCDPContract.deploy({
+        secret: aliceSecret,
       });
     }
   );
   console.log('zkUSD Orchestrator contract deployed.');
-  await printState();
 
-  // Alice creates a CDP
-  console.log('Alice is creating a new CDP...');
-  const aliceCDPId = Poseidon.hash(alice.toFields());
-  const secret = Field(1234);
-  const aliceCDPWitness = cdpStateManager.getCDPWitness(aliceCDPId);
-  const aliceCDPOwnershipWitness =
-    cdpStateManager.getCDPOwnershipWitness(aliceCDPId);
-
+  console.log('Depositing collateral...');
   await executeTransaction(alice, [alice.key], async () => {
-    await zkUSDOrchestratorContract.createCDP(
-      aliceCDPWitness,
-      aliceCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(aliceCDPId),
-      secret
-    );
-  });
-  console.log('Alice created a CDP.');
-  await printState();
-
-  //Update the local CDP Position with ownership
-  cdpStateManager.updateCDPPosition(
-    aliceCDPId,
-    await cdpStateManager.getCDPPosition(aliceCDPId),
-    secret
-  );
-
-  // Alice deposits collateral
-  const depositAmount = UInt64.from(10e9);
-  console.log(
-    `Alice is depositing ${formatBalance(
-      depositAmount.toBigInt()
-    )} MINA as collateral...`
-  );
-
-  await executeTransaction(alice, [alice.key], async () => {
-    await zkUSDOrchestratorContract.depositCollateral(
-      aliceCDPWitness,
-      aliceCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(aliceCDPId),
-      depositAmount,
-      secret
-    );
+    await aliceCDPContract.depositCollateral(UInt64.from(10e9), aliceSecret);
   });
 
-  // Update local CDP position
-  cdpStateManager.updateCDPPosition(aliceCDPId, {
-    collateralAmount: depositAmount,
-  });
-  console.log('Alice deposited collateral.');
-  await printState();
-
-  // Alice mints zkUSD
-  const mintAmount = UInt64.from(6e9);
-  console.log(
-    `Alice is minting ${formatBalance(mintAmount.toBigInt())} zkUSD...`
-  );
+  console.log('Minting zkUSD...');
 
   await executeTransaction(alice, [alice.key], async () => {
     AccountUpdate.fundNewAccount(alice, 1);
-    await zkUSDOrchestratorContract.mintZKUSD(
-      aliceCDPWitness,
-      aliceCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(aliceCDPId),
-      mintAmount,
-      alice,
-      secret,
-      price,
-      signature
+    await aliceCDPContract.mintZkUsd(
+      UInt64.from(5e9),
+      aliceSecret,
+      oracle.getSignedPrice()
     );
   });
 
-  // Update local CDP position
-  cdpStateManager.updateCDPPosition(aliceCDPId, {
-    debtAmount: mintAmount,
-  });
-  console.log('Alice minted zkUSD.');
   await printState();
 
-  // Alice burns zkUSD
-  const burnAmount = UInt64.from(1e9);
-  console.log(
-    `Alice is burning ${formatBalance(burnAmount.toBigInt())} zkUSD...`
+  await executeTransaction(
+    alice,
+    [alice.key, aliceCDPKeyPair.privateKey],
+    async () => {
+      AccountUpdate.fundNewAccount(alice, 1);
+      await aliceCDPContract.withdrawZkUsd(UInt64.from(5e9), aliceSecret);
+    }
   );
 
+  await printState();
+
+  console.log('Burning zkUSD...');
   await executeTransaction(alice, [alice.key], async () => {
-    await zkUSDOrchestratorContract.burnZKUSD(
-      aliceCDPWitness,
-      aliceCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(aliceCDPId),
-      burnAmount,
-      secret
-    );
+    await aliceCDPContract.burnZkUsd(UInt64.from(1e9), aliceSecret);
   });
 
-  // Update local CDP position
-  const currentDebt = (await cdpStateManager.getCDPPosition(aliceCDPId))
-    .debtAmount;
-  cdpStateManager.updateCDPPosition(aliceCDPId, {
-    debtAmount: currentDebt.sub(burnAmount),
-  });
-  console.log('Alice burned zkUSD.');
   await printState();
 
-  // Bob liquidates Alice's CDP
-  console.log('Bob creates HUGE position');
+  //Now to test the liquidation Bob needs to create a position and mint some zkUSD
 
-  // Bob creates a large CDP position
-  const bobCollateralAmount = UInt64.from(750e9); // 500 MINA
-  const bobDebtAmount = UInt64.from(20e9); // 250 zkUSD
-  const bobSecret = Field.random();
-  const bobCDPId = Poseidon.hash(bob.toFields());
-  const bobCDPWitness = cdpStateManager.getCDPWitness(bobCDPId);
-  const bobCDPOwnershipWitness =
-    cdpStateManager.getCDPOwnershipWitness(bobCDPId);
-
-  console.log(
-    `Bob is creating a CDP with ${formatBalance(
-      bobCollateralAmount.toBigInt()
-    )} MINA as collateral...`
+  console.log('Bob deploying CDP contract...');
+  await executeTransaction(
+    bob,
+    [bob.key, bobCDPKeyPair.privateKey],
+    async () => {
+      AccountUpdate.fundNewAccount(bob, 1);
+      await bobCDPContract.deploy({
+        secret: bobSecret,
+      });
+    }
   );
 
+  console.log('Bob depositing collateral...');
   await executeTransaction(bob, [bob.key], async () => {
-    await zkUSDOrchestratorContract.createCDP(
-      bobCDPWitness,
-      bobCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(bobCDPId),
-      bobSecret
-    );
+    await bobCDPContract.depositCollateral(UInt64.from(500e9), bobSecret);
   });
 
-  // Update the local CDP Position with ownership
-  cdpStateManager.updateCDPPosition(
-    bobCDPId,
-    await cdpStateManager.getCDPPosition(bobCDPId),
-    bobSecret
-  );
-
-  await executeTransaction(bob, [bob.key], async () => {
-    await zkUSDOrchestratorContract.depositCollateral(
-      bobCDPWitness,
-      bobCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(bobCDPId),
-      bobCollateralAmount,
-      bobSecret
-    );
-  });
-
-  cdpStateManager.updateCDPPosition(bobCDPId, {
-    collateralAmount: bobCollateralAmount,
-  });
-
+  console.log('Bob minting zkUSD...');
   await executeTransaction(bob, [bob.key], async () => {
     AccountUpdate.fundNewAccount(bob, 1);
-    await zkUSDOrchestratorContract.mintZKUSD(
-      bobCDPWitness,
-      bobCDPOwnershipWitness,
-      await cdpStateManager.getCDPPosition(bobCDPId),
-      bobDebtAmount,
-      bob,
+    await bobCDPContract.mintZkUsd(
+      UInt64.from(100e9),
       bobSecret,
-      price,
-      signature
+      oracle.getSignedPrice()
     );
   });
 
-  cdpStateManager.updateCDPPosition(bobCDPId, {
-    debtAmount: bobDebtAmount,
-  });
-  console.log('Bob created HUGE Position.');
+  //Bob withdraws his zkUSD
+  console.log('Bob withdrawing zkUSD...');
+  await executeTransaction(
+    bob,
+    [bob.key, bobCDPKeyPair.privateKey],
+    async () => {
+      AccountUpdate.fundNewAccount(bob, 1);
+      await bobCDPContract.withdrawZkUsd(UInt64.from(100e9), bobSecret);
+    }
+  );
+
   await printState();
 
-  //Simulate oracle price drop
+  //MARKET CRASH
+
   oracle.setPrice(UInt64.from(0.5e9));
 
-  console.log('PRICE DROP BY HALF');
   await printState();
 
-  const { price: newPrice, signature: newSignature } = oracle.getSignedPrice();
-
-  //Bob can now liquidate Alice's CDP
+  //Bob liquidates Alice's position
+  console.log("Bob liquidating Alice's position...");
   await executeTransaction(bob, [bob.key], async () => {
-    await zkUSDOrchestratorContract.liquidateCDP(
-      cdpStateManager.getCDPWitness(aliceCDPId),
-      await cdpStateManager.getCDPPosition(aliceCDPId),
-      newPrice,
-      newSignature
-    );
-  });
-
-  console.log('Alice CDP liquidated by Bob');
-
-  //update our local state
-  cdpStateManager.updateCDPPosition(aliceCDPId, {
-    collateralAmount: UInt64.from(0),
-    debtAmount: UInt64.from(0),
+    await aliceCDPContract.liquidate(oracle.getSignedPrice());
   });
 
   await printState();
