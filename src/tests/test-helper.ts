@@ -57,11 +57,8 @@ export class TestHelper {
   currentAccountIndex: number = 0;
   Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
   oracle: Oracle;
-  useProof: boolean;
 
-  constructor(useProof: boolean) {
-    this.useProof = useProof;
-  }
+  static proofsEnabled = false;
 
   createContractInstance<T extends SmartContract>(
     ContractClass: new (publicKey: PublicKey) => T
@@ -75,7 +72,9 @@ export class TestHelper {
   }
 
   async initChain() {
-    this.Local = await Mina.LocalBlockchain({ proofsEnabled: this.useProof });
+    this.Local = await Mina.LocalBlockchain({
+      proofsEnabled: TestHelper.proofsEnabled,
+    });
     Mina.setActiveInstance(this.Local);
     this.deployer = this.Local.testAccounts[this.currentAccountIndex];
     this.currentAccountIndex++;
@@ -161,7 +160,7 @@ export class TestHelper {
       privateKey: tokenKeyPair.privateKey,
     };
 
-    if (this.useProof) {
+    if (TestHelper.proofsEnabled) {
       await this.compileContracts();
     }
 

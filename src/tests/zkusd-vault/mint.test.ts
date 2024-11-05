@@ -11,8 +11,7 @@ import {
 import { OraclePayload, ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 
 describe('zkUSD Vault Mint Test Suite', () => {
-  const proofsEnabled = false;
-  const testHelper = new TestHelper(proofsEnabled);
+  const testHelper = new TestHelper();
 
   beforeAll(async () => {
     await testHelper.initChain();

@@ -41,6 +41,53 @@ export class OraclePayload extends Struct({
   signature: Signature,
 }) {}
 
+export class NewVaultEvent extends Struct({
+  vaultAddress: PublicKey,
+}) {}
+
+export class DepositCollateralEvent extends Struct({
+  vaultAddress: PublicKey,
+  amountDeposited: UInt64,
+  vaultCollateralAmount: UInt64,
+  vaultDebtAmount: UInt64,
+}) {}
+
+export class RedeemCollateralEvent extends Struct({
+  vaultAddress: PublicKey,
+  amountRedeemed: UInt64,
+  vaultCollateralAmount: UInt64,
+  vaultDebtAmount: UInt64,
+}) {}
+
+export class MintZkUsdEvent extends Struct({
+  vaultAddress: PublicKey,
+  amountMinted: UInt64,
+  vaultCollateralAmount: UInt64,
+  vaultDebtAmount: UInt64,
+}) {}
+
+export class WithdrawZkUsdEvent extends Struct({
+  vaultAddress: PublicKey,
+  amountWithdrawn: UInt64,
+  vaultCollateralAmount: UInt64,
+  vaultDebtAmount: UInt64,
+}) {}
+
+export class BurnZkUsdEvent extends Struct({
+  vaultAddress: PublicKey,
+  amountBurned: UInt64,
+  vaultCollateralAmount: UInt64,
+  vaultDebtAmount: UInt64,
+}) {}
+
+export class LiquidateEvent extends Struct({
+  vaultAddress: PublicKey,
+  liquidator: PublicKey,
+  vaultCollateralLiquidated: UInt64,
+  vaultDebtRepaid: UInt64,
+  price: UInt64,
+}) {}
+
 export class ZkUsdVault extends SmartContract {
   @state(UInt64) collateralAmount = State<UInt64>();
   @state(UInt64) debtAmount = State<UInt64>();
@@ -52,13 +99,22 @@ export class ZkUsdVault extends SmartContract {
   static COLLATERAL_RATIO_PRECISION = Field.from(100);
   static PRECISION = Field.from(1e9);
   static MIN_HEALTH_FACTOR = UInt64.from(100);
-
   static ORACLE_PUBLIC_KEY = PublicKey.fromBase58(
     'B62qkQA5kdAsyvizsSdZ9ztzNidsqNXj9YrESPkMwUPt1J8RYDGkjAY'
   );
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
     'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
   );
+
+  readonly events = {
+    NewVault: NewVaultEvent,
+    DepositCollateral: DepositCollateralEvent,
+    RedeemCollateral: RedeemCollateralEvent,
+    MintZkUsd: MintZkUsdEvent,
+    WithdrawZkUsd: WithdrawZkUsdEvent,
+    BurnZkUsd: BurnZkUsdEvent,
+    Liquidate: LiquidateEvent,
+  };
 
   async deploy(args: DeployArgs & { secret: Field }) {
     await super.deploy(args);
@@ -76,12 +132,19 @@ export class ZkUsdVault extends SmartContract {
 
     const ownershipHash = Poseidon.hash(args.secret.toFields());
     this.ownershipHash.set(ownershipHash);
+
+    this.emitEvent(
+      'NewVault',
+      new NewVaultEvent({
+        vaultAddress: this.address,
+      })
+    );
   }
 
   @method async depositCollateral(amount: UInt64, secret: Field) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
-    this.debtAmount.getAndRequireEquals();
+    let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
 
     //assert amount is greater than 0
@@ -103,6 +166,17 @@ export class ZkUsdVault extends SmartContract {
     });
 
     this.collateralAmount.set(collateralAmount.add(amount));
+
+    //Emit the DepositCollateral event
+    this.emitEvent(
+      'DepositCollateral',
+      new DepositCollateralEvent({
+        vaultAddress: this.address,
+        amountDeposited: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
   }
 
   @method async redeemCollateral(
@@ -157,6 +231,17 @@ export class ZkUsdVault extends SmartContract {
 
     //Update the collateral amount
     this.collateralAmount.set(remainingCollateral);
+
+    //Emit the WithdrawZkUsd event
+    this.emitEvent(
+      'RedeemCollateral',
+      new RedeemCollateralEvent({
+        vaultAddress: this.address,
+        amountRedeemed: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
   }
 
   @method async mintZkUsd(
@@ -204,12 +289,23 @@ export class ZkUsdVault extends SmartContract {
 
     //Set the interaction flag
     this.interactionFlag.set(Bool(true));
+
+    //Emit the MintZkUsd event
+    this.emitEvent(
+      'MintZkUsd',
+      new MintZkUsdEvent({
+        vaultAddress: this.address,
+        amountMinted: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
   }
 
   @method async withdrawZkUsd(amount: UInt64, secret: Field) {
     //Preconditions
-    this.collateralAmount.getAndRequireEquals();
-    this.debtAmount.getAndRequireEquals();
+    let collateralAmount = this.collateralAmount.getAndRequireEquals();
+    let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
 
     //Get the zkUSD token
@@ -236,11 +332,22 @@ export class ZkUsdVault extends SmartContract {
       this.sender.getAndRequireSignatureV2(),
       amount
     );
+
+    //Emit the WithdrawZkUsd event
+    this.emitEvent(
+      'WithdrawZkUsd',
+      new WithdrawZkUsdEvent({
+        vaultAddress: this.address,
+        amountWithdrawn: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
   }
 
   @method async burnZkUsd(amount: UInt64, secret: Field) {
     //Preconditions
-    this.collateralAmount.getAndRequireEquals();
+    let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
     //Get the zkUSD token
@@ -269,6 +376,17 @@ export class ZkUsdVault extends SmartContract {
 
     //Set the interaction flag
     this.interactionFlag.set(Bool(true));
+
+    //Emit the BurnZkUsd event
+    this.emitEvent(
+      'BurnZkUsd',
+      new BurnZkUsdEvent({
+        vaultAddress: this.address,
+        amountBurned: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
   }
 
   @method async liquidate(oraclePayload: OraclePayload) {
@@ -312,6 +430,18 @@ export class ZkUsdVault extends SmartContract {
 
     //Set the interaction flag
     this.interactionFlag.set(Bool(true));
+
+    //Emit the Liquidate event
+    this.emitEvent(
+      'Liquidate',
+      new LiquidateEvent({
+        vaultAddress: this.address,
+        liquidator: this.sender.getUnconstrainedV2(),
+        vaultCollateralLiquidated: collateralAmount,
+        vaultDebtRepaid: debtAmount,
+        price: oraclePayload.price,
+      })
+    );
   }
 
   @method.returns(UInt64)

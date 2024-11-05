@@ -1,8 +1,7 @@
 import { TestHelper, TestAmounts } from '../test-helper';
 
 describe('zkUSD Deployment Test Suite', () => {
-  const proofsEnabled = false;
-  const testHelper = new TestHelper(proofsEnabled);
+  const testHelper = new TestHelper();
 
   beforeAll(async () => {
     await testHelper.initChain();

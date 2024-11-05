@@ -3,8 +3,7 @@ import { AccountUpdate, Field, Mina, PrivateKey, Signature } from 'o1js';
 import { OraclePayload, ZkUsdVaultErrors } from '../../zkusd-vault';
 
 describe('zkUSD Vault Redeem Test Suite', () => {
-  const proofsEnabled = false;
-  const testHelper = new TestHelper(proofsEnabled);
+  const testHelper = new TestHelper();
 
   beforeAll(async () => {
     await testHelper.initChain();
