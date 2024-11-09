@@ -257,6 +257,8 @@ async function main() {
   );
   console.log('zkUSD Orchestrator contract deployed.');
 
+  console.log(await Mina.getAccount(aliceCDPContract.address).delegate);
+
   console.log('Depositing collateral...');
   await executeTransaction(alice, [alice.key], async () => {
     await aliceCDPContract.depositCollateral(UInt64.from(10e9), aliceSecret);

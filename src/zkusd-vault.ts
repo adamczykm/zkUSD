@@ -97,13 +97,18 @@ export class ZkUsdVault extends SmartContract {
 
   static COLLATERAL_RATIO = Field.from(150);
   static COLLATERAL_RATIO_PRECISION = Field.from(100);
-  static PRECISION = Field.from(1e9);
+  static PROTOCOL_FEE = UInt64.from(50); // The percentage taken from staking rewards
+  static PROTOCOL_FEE_PRECISION = UInt64.from(100);
+  static UNIT_PRECISION = Field.from(1e9);
   static MIN_HEALTH_FACTOR = UInt64.from(100);
   static ORACLE_PUBLIC_KEY = PublicKey.fromBase58(
     'B62qkQA5kdAsyvizsSdZ9ztzNidsqNXj9YrESPkMwUPt1J8RYDGkjAY'
   );
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
     'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
+  );
+  static PROTOCOL_VAULT_ADDRESS = PublicKey.fromBase58(
+    'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
   );
 
   readonly events = {
@@ -124,7 +129,7 @@ export class ZkUsdVault extends SmartContract {
       setVerificationKey:
         Permissions.VerificationKey.impossibleDuringCurrentVersion(),
       setPermissions: Permissions.impossible(),
-      editState: Permissions.proofOrSignature(),
+      send: Permissions.proof(),
     });
 
     this.collateralAmount.set(UInt64.from(0));
@@ -132,6 +137,8 @@ export class ZkUsdVault extends SmartContract {
 
     const ownershipHash = Poseidon.hash(args.secret.toFields());
     this.ownershipHash.set(ownershipHash);
+
+    Provable.log(this.account.delegate);
 
     this.emitEvent(
       'NewVault',
@@ -223,10 +230,35 @@ export class ZkUsdVault extends SmartContract {
       ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
     );
 
-    //Send the collateral back to the sender
+    //Calculate whether there are any additional staking rewards
+    const account = this.account;
+    const balance = account.balance.get();
+    account.balance.requireEquals(balance);
+
+    //Whatever the balance is above the collateral amount is the staking rewards
+    const stakingRewards = balance.sub(collateralAmount);
+
+    //Calculate the protocol fee from the staking rewards
+    const protocolFee = stakingRewards
+      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
+
+    //If there are staking rewards, send the protocol fee to the protocol vault
+    let protocolFeeUpdate = AccountUpdate.createIf(
+      protocolFee.greaterThan(UInt64.from(0)),
+      ZkUsdVault.PROTOCOL_VAULT_ADDRESS
+    );
+
+    protocolFeeUpdate.balance.addInPlace(protocolFee);
+    this.balance.subInPlace(protocolFee);
+
+    //Send the remaining staking rewards to the owner
+    const stakingRewardsDividend = stakingRewards.sub(protocolFee);
+
+    //Send the collateral back to the sender including the staking rewards
     this.send({
       to: this.sender.getAndRequireSignatureV2(),
-      amount: amount,
+      amount: amount.add(stakingRewardsDividend),
     });
 
     //Update the collateral amount
@@ -485,7 +517,7 @@ export class ZkUsdVault extends SmartContract {
   private calculateUsdValue(amount: UInt64, price: UInt64): Field {
     const numCollateralValue = amount.toFields()[0].mul(price.toFields()[0]);
 
-    return this.fieldIntegerDiv(numCollateralValue, ZkUsdVault.PRECISION);
+    return this.fieldIntegerDiv(numCollateralValue, ZkUsdVault.UNIT_PRECISION);
   }
 
   private calculateMaxAllowedDebt(collateralValue: Field): Field {
