@@ -33,13 +33,6 @@ export class ZkUsdAdmin
     return await zkUSDVault.assertInteractionFlag();
   }
 
-  @method.returns(Bool)
-  public async canBurn(_accountUpdate: AccountUpdate) {
-    // Only allow burning if called by a zkUSDVault
-    const zkUSDVault = new ZkUsdVault(_accountUpdate.publicKey);
-    return await zkUSDVault.assertInteractionFlag();
-  }
-
   // Implement other required methods
   @method.returns(Bool)
   public async canChangeAdmin(_newAdmin: PublicKey) {

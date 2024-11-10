@@ -210,8 +210,6 @@ describe('zkUSD Vault Mint Test Suite', () => {
   });
 
   it('should allow bob to mint if he has the correct secret', async () => {
-    console.log('Bobs publicKey', testHelper.agents.bob.account);
-
     const debtAmountBefore =
       testHelper.agents.alice.vault?.contract.debtAmount.get();
     const vaultBalanceBefore = await testHelper.token.contract.getBalanceOf(

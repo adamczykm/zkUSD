@@ -1,80 +1,62 @@
 import {
+  SmartContract,
+  state,
+  PublicKey,
+  State,
   DeployArgs,
   method,
-  SmartContract,
-  Permissions,
-  AccountUpdate,
   UInt64,
-  Int64,
-  PublicKey,
-  Mina,
-  PrivateKey,
+  Permissions,
+  VerificationKey,
 } from 'o1js';
 
 export class ZkUsdProtocolVault extends SmartContract {
+  // Add owner state
+  @state(PublicKey) owner = State<PublicKey>();
+
   async deploy(args: DeployArgs) {
     await super.deploy(args);
 
     // Set permissions to prevent unauthorized updates
     this.account.permissions.set({
       ...Permissions.default(),
-      setVerificationKey:
-        Permissions.VerificationKey.impossibleDuringCurrentVersion(),
+      setVerificationKey: Permissions.VerificationKey.proofOrSignature(), // We want to be able to upgrade the protocol vault contract
       setPermissions: Permissions.impossible(),
     });
+
+    // Set initial owner as deployer
+    this.owner.set(this.sender.getAndRequireSignatureV2());
+  }
+
+  private assertOwner() {
+    const currentOwner = this.owner.getAndRequireEquals();
+    const sender = this.sender.getAndRequireSignatureV2();
+
+    sender.assertEquals(currentOwner);
+  }
+
+  @method
+  async updateVerificationKey(vk: VerificationKey) {
+    this.assertOwner();
+    this.account.verificationKey.set(vk);
   }
 
   @method async withdraw(amount: UInt64) {
-    // const zkUsdVault = new ZkUsdVault(_accountUpdate.publicKey);
-    // zkUsdVault.assertInteractionFlag();
+    // Assert owner
+    this.assertOwner();
 
+    // Process withdrawal
     this.send({
-      to: this.sender.getAndRequireSignatureV2(),
+      to: this.sender.getUnconstrainedV2(),
       amount: amount,
     });
   }
+
+  @method async updateOwner(newOwner: PublicKey) {
+    // Get and verify current owner
+    this.assertOwner();
+
+    // Update to new owner
+    this.owner.set(newOwner);
+  }
 }
-
-const localChain = await Mina.LocalBlockchain({
-  proofsEnabled: false,
-});
-
-// Mina.setActiveInstance(localChain);
-
-// const [deployer] = localChain.testAccounts;
-
-// const collateralVault = PrivateKey.randomKeypair();
-
-// await Mina.transaction(
-//   {
-//     sender: deployer,
-//   },
-//   async () => {
-//     AccountUpdate.fundNewAccount(deployer);
-//     await contract.deploy({});
-//   }
-// )
-//   .prove()
-//   .sign([collateralVault.privateKey, deployer.key])
-//   .send();
-
-// //Deposit
-
-// const tx = await Mina.transaction(
-//   {
-//     sender: deployer,
-//   },
-//   async () => {
-//     // AccountUpdate.fundNewAccount(deployer);
-//     let accountUpdate = AccountUpdate.create(deployer);
-//     await contract.withdraw(UInt64.from(100e9));
-//   }
-// ).prove();
-
-// console.log(tx.toPretty());
-
-// tx.sign([collateralVault.privateKey, deployer.key]).send();
-
-// contract.getTotalHoldings().then((value) => {
-//   console.log(value.toString());
-// });

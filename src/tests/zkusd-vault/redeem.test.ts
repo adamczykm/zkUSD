@@ -1,6 +1,13 @@
 import { TestHelper, TestAmounts } from '../test-helper';
-import { AccountUpdate, Field, Mina, PrivateKey, Signature } from 'o1js';
-import { OraclePayload, ZkUsdVaultErrors } from '../../zkusd-vault';
+import {
+  AccountUpdate,
+  Field,
+  Mina,
+  PrivateKey,
+  Signature,
+  UInt64,
+} from 'o1js';
+import { OraclePayload, ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 
 describe('zkUSD Vault Redeem Test Suite', () => {
   const testHelper = new TestHelper();
@@ -11,7 +18,7 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     testHelper.createAgents(['alice', 'bob', 'charlie', 'rewards']);
 
     //deploy alice's vault
-    await testHelper.deployVaults(['alice']);
+    await testHelper.deployVaults(['alice', 'bob']);
 
     //Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
@@ -32,18 +39,30 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     });
   });
 
+  const redeemCollateral = async (amount: UInt64) => {
+    try {
+      const txResult = await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.agents.alice.vault?.contract.redeemCollateral(
+            amount,
+            testHelper.agents.alice.secret,
+            testHelper.oracle.getSignedPrice()
+          );
+        }
+      );
+      return txResult;
+    } catch (e) {
+      throw e;
+    }
+  };
+
   it('should allow alice to redeem collateral', async () => {
     const initialCollateral =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
     const aliceBalanceBefore = Mina.getBalance(testHelper.agents.alice.account);
 
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.agents.alice.vault?.contract.redeemCollateral(
-        TestAmounts.SMALL_COLLATERAL,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
-      );
-    });
+    await redeemCollateral(TestAmounts.SMALL_COLLATERAL);
 
     const finalCollateral =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
@@ -57,16 +76,14 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     );
   });
 
-  it('should fail if redemption amount is zero', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.agents.alice.vault?.contract.redeemCollateral(
-          TestAmounts.ZERO,
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_ZERO);
+  it('should redeem nothing if the amount redeemed is zero', async () => {
+    const aliceBalanceBefore = Mina.getBalance(testHelper.agents.alice.account);
+
+    await redeemCollateral(TestAmounts.ZERO);
+
+    const aliceBalanceAfter = Mina.getBalance(testHelper.agents.alice.account);
+
+    expect(aliceBalanceAfter).toEqual(aliceBalanceBefore);
   });
 
   it('should fail if the user tries to send Mina from the vault without proof', async () => {
@@ -131,13 +148,7 @@ describe('zkUSD Vault Redeem Test Suite', () => {
   it('should fail if redemption amount is greater than collateral amount', async () => {
     // Try to redeem too much collateral
     await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.agents.alice.vault?.contract.redeemCollateral(
-          TestAmounts.LARGE_COLLATERAL, // Try to withdraw all collateral
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
-        );
-      })
+      redeemCollateral(TestAmounts.LARGE_COLLATERAL)
     ).rejects.toThrow(ZkUsdVaultErrors.INSUFFICIENT_COLLATERAL);
   });
 
@@ -153,15 +164,9 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     );
 
     // Try to redeem too much collateral
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.agents.alice.vault?.contract.redeemCollateral(
-          currentCollateral!, // Try to withdraw all collateral
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW);
+    await expect(redeemCollateral(currentCollateral!)).rejects.toThrow(
+      ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
+    );
   });
 
   it('should allow bob to redeem if he has the correct secret', async () => {
@@ -195,16 +200,7 @@ describe('zkUSD Vault Redeem Test Suite', () => {
 
     // Perform multiple small redemptions
     for (let i = 0; i < 3; i++) {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.agents.alice.vault?.contract.redeemCollateral(
-            TestAmounts.SMALL_COLLATERAL,
-            testHelper.agents.alice.secret,
-            testHelper.oracle.getSignedPrice()
-          );
-        }
-      );
+      await redeemCollateral(TestAmounts.SMALL_COLLATERAL);
     }
 
     const finalCollateral =
@@ -237,19 +233,7 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     const initialCollateral =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
 
-    await testHelper.transaction(
-      testHelper.agents.rewards.account,
-      async () => {
-        let rewardsDistribution = AccountUpdate.createSigned(
-          testHelper.agents.rewards.account
-        );
-
-        rewardsDistribution.send({
-          to: testHelper.agents.alice.vault!.publicKey!,
-          amount: TestAmounts.SMALL_COLLATERAL,
-        });
-      }
-    );
+    await testHelper.sendRewardsToVault('alice', TestAmounts.SMALL_COLLATERAL);
 
     const finalCollateral =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
@@ -264,26 +248,97 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     );
   });
 
-  it('should create the protocol fee account update if there are staking rewards', async () => {
-    const txResult = await testHelper.transaction(
-      testHelper.agents.alice.account,
-      async () => {
-        await testHelper.agents.alice.vault?.contract.redeemCollateral(
-          TestAmounts.SMALL_COLLATERAL,
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
-        );
-        //Does the Protocol Vault have to approve this?
-      },
-      {
-        printTx: true,
-      }
-    );
+  it('should create the protocol vault account update if there are staking rewards', async () => {
+    const txResult = await redeemCollateral(TestAmounts.SMALL_COLLATERAL);
 
     // Check that no account update has a label containing 'ZkUsdProtocolVault'
     const hasProtocolVaultUpdate = txResult.transaction.accountUpdates.some(
       (update) => update.publicKey.equals(testHelper.protocolVault.publicKey)
     );
     expect(hasProtocolVaultUpdate).toBe(true);
+  });
+
+  it('should send the correct fee to the protocol vault', async () => {
+    //Send some more rewards to the vault
+    await testHelper.sendRewardsToVault('alice', TestAmounts.SMALL_COLLATERAL);
+
+    const collateralAmount =
+      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+
+    const aliceVaultBalance = Mina.getBalance(
+      testHelper.agents.alice.vault!.publicKey!
+    );
+
+    const stakingRewards = aliceVaultBalance.sub(collateralAmount!);
+
+    const protocolFee = stakingRewards
+      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
+
+    const protocolVaultBalanceBefore = Mina.getBalance(
+      testHelper.protocolVault.publicKey
+    );
+
+    // Redeem some collateral
+    await redeemCollateral(TestAmounts.SMALL_COLLATERAL);
+
+    const protocolVaultBalanceAfter = Mina.getBalance(
+      testHelper.protocolVault.publicKey
+    );
+
+    expect(protocolVaultBalanceAfter).toEqual(
+      protocolFee.add(protocolVaultBalanceBefore)
+    );
+  });
+
+  it('should send the correct accured staking rewards to the user minus the fee', async () => {
+    // Send some rewards to the vault
+    await testHelper.sendRewardsToVault('alice', TestAmounts.SMALL_COLLATERAL);
+
+    const collateralAmount =
+      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+    const aliceBalanceBefore = Mina.getBalance(testHelper.agents.alice.account);
+    const vaultBalanceBefore = Mina.getBalance(
+      testHelper.agents.alice.vault!.publicKey!
+    );
+
+    // Calculate staking rewards and expected fee
+    const stakingRewards = vaultBalanceBefore.sub(collateralAmount!);
+    const protocolFee = stakingRewards
+      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
+    const expectedRewardsPayment = stakingRewards.sub(protocolFee);
+
+    // Redeem a small amount of collateral
+    await redeemCollateral(TestAmounts.SMALL_COLLATERAL);
+
+    const aliceBalanceAfter = Mina.getBalance(testHelper.agents.alice.account);
+
+    // Alice should receive:
+    // 1. The redeemed collateral amount
+    // 2. The staking rewards minus the protocol fee
+    const expectedBalance = aliceBalanceBefore
+      .add(TestAmounts.SMALL_COLLATERAL)
+      .add(expectedRewardsPayment);
+
+    expect(aliceBalanceAfter).toEqual(expectedBalance);
+  });
+
+  it('should fail redeeming if vault balance is zero', async () => {
+    const vaultBalance = Mina.getBalance(
+      testHelper.agents.bob.vault!.publicKey!
+    );
+
+    expect(vaultBalance).toEqual(TestAmounts.ZERO);
+
+    await expect(
+      testHelper.transaction(testHelper.agents.bob.account, async () => {
+        await testHelper.agents.bob.vault?.contract.redeemCollateral(
+          TestAmounts.ZERO,
+          testHelper.agents.bob.secret,
+          testHelper.oracle.getSignedPrice()
+        );
+      })
+    ).rejects.toThrow(ZkUsdVaultErrors.BALANCE_ZERO);
   });
 });

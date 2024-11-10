@@ -40,6 +40,7 @@ export class TestAmounts {
   // Collateral amounts
   static EXTRA_LARGE_COLLATERAL = UInt64.from(900e9); // 900 Mina
   static LARGE_COLLATERAL = UInt64.from(100e9); // 100 Mina
+  static MEDIUM_COLLATERAL = UInt64.from(50e9); // 50 Mina
   static SMALL_COLLATERAL = UInt64.from(1e9); // 1 Mina
 
   // zkUSD amounts
@@ -229,5 +230,25 @@ export class TestHelper {
         }
       );
     }
+  }
+
+  async sendRewardsToVault(name: string, amount: UInt64) {
+    if (!this.agents.rewards) {
+      this.createAgents(['rewards']);
+    }
+
+    if (!this.agents[name]) {
+      throw new Error(`Agent ${name} not found`);
+    }
+
+    await this.transaction(this.agents.rewards.account, async () => {
+      let rewardsDistribution = AccountUpdate.createSigned(
+        this.agents.rewards.account
+      );
+      rewardsDistribution.send({
+        to: this.agents[name].vault!.publicKey!,
+        amount,
+      });
+    });
   }
 }
