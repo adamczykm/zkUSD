@@ -1,6 +1,6 @@
 import { TestHelper, TestAmounts } from '../test-helper';
 import { AccountUpdate, Mina, Permissions, UInt64 } from 'o1js';
-import { ZkUsdVaultErrors } from '../../zkusd-vault';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 
 describe('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
@@ -8,7 +8,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   beforeAll(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice', 'bob', 'charlie']);
+    testHelper.createAgents(['alice', 'bob', 'charlie', 'rewards']);
 
     //Deploy a fresh vault
     await testHelper.deployVaults(['alice', 'bob']);
@@ -164,11 +164,17 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.agents.alice.vault?.contract.liquidate(
-        testHelper.oracle.getSignedPrice()
-      );
-    });
+    await testHelper.transaction(
+      testHelper.agents.bob.account,
+      async () => {
+        await testHelper.agents.alice.vault?.contract.liquidate(
+          testHelper.oracle.getSignedPrice()
+        );
+      },
+      {
+        printTx: true,
+      }
+    );
 
     const aliceVaultCollateralPostLiq =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
@@ -199,5 +205,36 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     );
     expect(aliceZkUsdBalancePostLiq).toEqual(aliceZkUsdBalancePreLiq);
     expect(aliceMinaBalancePostLiq).toEqual(aliceMinaBalancePreLiq);
+  });
+
+  it('should let the user redeem rewards after liquidation', async () => {
+    await testHelper.sendRewardsToVault('alice', TestAmounts.SMALL_COLLATERAL);
+
+    const aliceMinaBalanceBefore = Mina.getBalance(
+      testHelper.agents.alice.account
+    );
+
+    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+      await testHelper.agents.alice.vault?.contract.redeemCollateral(
+        TestAmounts.ZERO,
+        testHelper.agents.alice.secret,
+        testHelper.oracle.getSignedPrice()
+      );
+    });
+
+    const protocolFee = TestAmounts.SMALL_COLLATERAL.mul(
+      ZkUsdVault.PROTOCOL_FEE
+    ).div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
+
+    const aliceMinaBalanceAfter = Mina.getBalance(
+      testHelper.agents.alice.account
+    );
+
+    // Calculate expected rewards
+    const expectedRewards = TestAmounts.SMALL_COLLATERAL.sub(protocolFee);
+
+    expect(aliceMinaBalanceAfter).toEqual(
+      aliceMinaBalanceBefore.add(expectedRewards)
+    );
   });
 });

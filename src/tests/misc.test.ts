@@ -17,7 +17,7 @@ import { FungibleToken } from 'mina-fungible-token';
 
 class FakeZkUsdVault extends SmartContract {
   @state(PublicKey) zkUsdTokenAddress = State<PublicKey>();
-  @state(Bool) interactionFlag = State<Bool>(Bool(false));
+  @state(Bool) mintFlag = State<Bool>(Bool(false));
 
   async deploy(args: DeployArgs & { zkUsdTokenAddress: PublicKey }) {
     await super.deploy(args);
@@ -35,14 +35,14 @@ class FakeZkUsdVault extends SmartContract {
     await zkUSD.mint(this.sender.getUnconstrainedV2(), amount);
 
     //Set the interaction flag
-    this.interactionFlag.set(Bool(true));
+    this.mintFlag.set(Bool(true));
   }
 
   // This flag is set so the zkUSD Admin contract can check its permissions
   @method.returns(Bool)
   public async assertInteractionFlag() {
-    this.interactionFlag.requireEquals(Bool(true));
-    this.interactionFlag.set(Bool(false));
+    this.mintFlag.requireEquals(Bool(true));
+    this.mintFlag.set(Bool(false));
     return Bool(true);
   }
 }

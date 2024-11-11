@@ -20,6 +20,7 @@ import {
 
 export const ZkUsdVaultErrors = {
   AMOUNT_ZERO: 'Transaction amount must be greater than zero',
+  BALANCE_ZERO: 'Vault balance must be greater than zero',
   HEALTH_FACTOR_TOO_LOW:
     'Vault would become undercollateralized (health factor < 100). Add more collateral or reduce debt first',
   HEALTH_FACTOR_TOO_HIGH:
@@ -93,17 +94,22 @@ export class ZkUsdVault extends SmartContract {
   @state(UInt64) debtAmount = State<UInt64>();
   @state(Field) ownershipHash = State<Field>();
   @state(PublicKey) oraclePublicKey = State<PublicKey>();
-  @state(Bool) interactionFlag = State<Bool>(Bool(false));
+  @state(Bool) mintFlag = State<Bool>(Bool(false));
 
   static COLLATERAL_RATIO = Field.from(150);
   static COLLATERAL_RATIO_PRECISION = Field.from(100);
-  static PRECISION = Field.from(1e9);
+  static PROTOCOL_FEE = UInt64.from(50); // The percentage taken from staking rewards
+  static PROTOCOL_FEE_PRECISION = UInt64.from(100);
+  static UNIT_PRECISION = Field.from(1e9);
   static MIN_HEALTH_FACTOR = UInt64.from(100);
   static ORACLE_PUBLIC_KEY = PublicKey.fromBase58(
     'B62qkQA5kdAsyvizsSdZ9ztzNidsqNXj9YrESPkMwUPt1J8RYDGkjAY'
   );
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
     'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
+  );
+  static PROTOCOL_VAULT_ADDRESS = PublicKey.fromBase58(
+    'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
   );
 
   readonly events = {
@@ -124,7 +130,7 @@ export class ZkUsdVault extends SmartContract {
       setVerificationKey:
         Permissions.VerificationKey.impossibleDuringCurrentVersion(),
       setPermissions: Permissions.impossible(),
-      editState: Permissions.proofOrSignature(),
+      send: Permissions.proof(),
     });
 
     this.collateralAmount.set(UInt64.from(0));
@@ -188,9 +194,10 @@ export class ZkUsdVault extends SmartContract {
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
+    let balance = this.account.balance.getAndRequireEquals();
 
-    //assert amount is greater than 0
-    amount.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.AMOUNT_ZERO);
+    //assert balance is greater than 0
+    balance.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.BALANCE_ZERO);
 
     //Assert the ownership secret is correct
     ownershipHash.assertEquals(
@@ -201,7 +208,7 @@ export class ZkUsdVault extends SmartContract {
     //verify the oracle price
     this.verifyOraclePayload(oraclePayload);
 
-    //Assert the amount is less than the collateral amount
+    //Assert the amount is less than or equal to the collateral amount
     amount.assertLessThanOrEqual(
       collateralAmount,
       ZkUsdVaultErrors.INSUFFICIENT_COLLATERAL
@@ -223,10 +230,30 @@ export class ZkUsdVault extends SmartContract {
       ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
     );
 
-    //Send the collateral back to the sender
+    //Check if there are any staking rewards: Whatever the balance is above the collateral amount is the staking rewards
+    const stakingRewards = balance.sub(collateralAmount);
+
+    //Calculate the protocol fee from the staking rewards
+    const protocolFee = stakingRewards
+      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
+
+    //If there are staking rewards, send the protocol fee to the protocol vault
+    let protocolFeeUpdate = AccountUpdate.createIf(
+      protocolFee.greaterThan(UInt64.from(0)),
+      ZkUsdVault.PROTOCOL_VAULT_ADDRESS
+    );
+
+    protocolFeeUpdate.balance.addInPlace(protocolFee);
+    this.balance.subInPlace(protocolFee);
+
+    //Send the remaining staking rewards to the owner
+    const stakingRewardsDividend = stakingRewards.sub(protocolFee);
+
+    //Send the collateral back to the sender including the staking rewards
     this.send({
       to: this.sender.getAndRequireSignatureV2(),
-      amount: amount,
+      amount: amount.add(stakingRewardsDividend),
     });
 
     //Update the collateral amount
@@ -288,7 +315,7 @@ export class ZkUsdVault extends SmartContract {
     this.debtAmount.set(debtAmount.add(amount));
 
     //Set the interaction flag
-    this.interactionFlag.set(Bool(true));
+    this.mintFlag.set(Bool(true));
 
     //Emit the MintZkUsd event
     this.emitEvent(
@@ -374,9 +401,6 @@ export class ZkUsdVault extends SmartContract {
     //Burn the zkUsd
     await zkUsd.burn(this.sender.getAndRequireSignatureV2(), amount);
 
-    //Set the interaction flag
-    this.interactionFlag.set(Bool(true));
-
     //Emit the BurnZkUsd event
     this.emitEvent(
       'BurnZkUsd',
@@ -428,9 +452,6 @@ export class ZkUsdVault extends SmartContract {
     //Update the debt amount
     this.debtAmount.set(UInt64.from(0));
 
-    //Set the interaction flag
-    this.interactionFlag.set(Bool(true));
-
     //Emit the Liquidate event
     this.emitEvent(
       'Liquidate',
@@ -459,8 +480,8 @@ export class ZkUsdVault extends SmartContract {
   // This flag is set so the zkUSD Admin contract can check its permissions
   @method.returns(Bool)
   public async assertInteractionFlag() {
-    this.interactionFlag.requireEquals(Bool(true));
-    this.interactionFlag.set(Bool(false));
+    this.mintFlag.requireEquals(Bool(true));
+    this.mintFlag.set(Bool(false));
     return Bool(true);
   }
 
@@ -485,7 +506,7 @@ export class ZkUsdVault extends SmartContract {
   private calculateUsdValue(amount: UInt64, price: UInt64): Field {
     const numCollateralValue = amount.toFields()[0].mul(price.toFields()[0]);
 
-    return this.fieldIntegerDiv(numCollateralValue, ZkUsdVault.PRECISION);
+    return this.fieldIntegerDiv(numCollateralValue, ZkUsdVault.UNIT_PRECISION);
   }
 
   private calculateMaxAllowedDebt(collateralValue: Field): Field {
