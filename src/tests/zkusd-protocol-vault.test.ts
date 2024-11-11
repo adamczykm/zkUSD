@@ -13,11 +13,10 @@ import {
   State,
   UInt64,
   VerificationKey,
+  Int64,
 } from 'o1js';
 
 class ZkUsdProtocolVaultV2 extends SmartContract {
-  @state(PublicKey) owner = State<PublicKey>();
-  // Added new state variable to demonstrate upgrade
   @state(UInt64) protocolFee = State<UInt64>();
 
   async deploy(args: DeployArgs) {
@@ -27,34 +26,18 @@ class ZkUsdProtocolVaultV2 extends SmartContract {
       setVerificationKey: Permissions.VerificationKey.proofOrSignature(),
       setPermissions: Permissions.impossible(),
     });
-    this.owner.set(this.sender.getAndRequireSignatureV2());
-  }
-
-  private assertOwner() {
-    const currentOwner = this.owner.getAndRequireEquals();
-    const sender = this.sender.getAndRequireSignatureV2();
-    sender.assertEquals(currentOwner);
   }
 
   @method
   async updateVerificationKey(vk: VerificationKey) {
-    this.assertOwner();
     this.account.verificationKey.set(vk);
   }
 
   @method async withdraw(amount: UInt64) {
-    this.assertOwner();
     this.send({ to: this.sender.getUnconstrainedV2(), amount });
   }
 
-  @method async updateOwner(newOwner: PublicKey) {
-    this.assertOwner();
-    this.owner.set(newOwner);
-  }
-
-  // New method to demonstrate upgrade
   @method async setProtocolFee(fee: UInt64) {
-    this.assertOwner();
     this.protocolFee.set(fee);
   }
 }
@@ -88,26 +71,36 @@ describe('zkUSD Protocol Vault Test Suite', () => {
   it('should have the correct balance', async () => {
     const balance = Mina.getBalance(testHelper.protocolVault.publicKey);
 
+    const currentProtocolFee =
+      testHelper.protocolVault.contract.protocolFee.get();
+
     const protocolFee = TestAmounts.MEDIUM_COLLATERAL.mul(
-      ZkUsdVault.PROTOCOL_FEE
+      currentProtocolFee
     ).div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
     expect(balance).toEqual(protocolFee);
   });
 
-  it('should allow owner to withdraw funds', async () => {
-    const ownerBalanceBefore = Mina.getBalance(testHelper.deployer);
+  it('should allow withdrawal of protocol funds with admin signature', async () => {
+    const adminBalanceBefore = Mina.getBalance(testHelper.deployer);
     const vaultBalanceBefore = Mina.getBalance(
       testHelper.protocolVault.publicKey
     );
 
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.protocolVault.contract.withdraw(
-        TestAmounts.SMALL_COLLATERAL
-      );
-    });
+    await testHelper.transaction(
+      testHelper.deployer,
+      async () => {
+        await testHelper.protocolVault.contract.withdrawProtocolFunds(
+          testHelper.deployer,
+          TestAmounts.SMALL_COLLATERAL
+        );
+      },
+      {
+        extraSigners: [testHelper.protocolAdmin.privateKey],
+      }
+    );
 
-    const ownerBalanceAfter = Mina.getBalance(testHelper.deployer);
+    const adminBalanceAfter = Mina.getBalance(testHelper.deployer);
     const vaultBalanceAfter = Mina.getBalance(
       testHelper.protocolVault.publicKey
     );
@@ -115,76 +108,106 @@ describe('zkUSD Protocol Vault Test Suite', () => {
     expect(vaultBalanceAfter).toEqual(
       vaultBalanceBefore.sub(TestAmounts.SMALL_COLLATERAL)
     );
-    expect(ownerBalanceAfter).toEqual(
-      ownerBalanceBefore.add(TestAmounts.SMALL_COLLATERAL)
+    expect(adminBalanceAfter).toEqual(
+      adminBalanceBefore.add(TestAmounts.SMALL_COLLATERAL)
     );
   });
 
-  it('should not allow non-owner to withdraw funds', async () => {
+  it('should allow changing the protocol fee with admin signature', async () => {
+    const newFee = UInt64.from(10); // change the fee
+
+    await testHelper.transaction(
+      testHelper.agents.alice.account,
+      async () => {
+        await testHelper.protocolVault.contract.setProtocolFee(newFee);
+      },
+      {
+        extraSigners: [testHelper.protocolAdmin.privateKey],
+      }
+    );
+  });
+
+  it('should not allow the withdrawal of protocol funds without admin signature', async () => {
     // First send some funds to the protocol vault
 
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.protocolVault.contract.withdraw(
+        await testHelper.protocolVault.contract.withdrawProtocolFunds(
+          testHelper.agents.alice.account,
           TestAmounts.SMALL_COLLATERAL
         );
       })
-    ).rejects.toThrow(/assertEquals/i);
+    ).rejects.toThrow(/Transaction verification failed/i);
   });
 
-  it('should not allow non-owner to update owner', async () => {
-    const newOwner = testHelper.agents.bob.account;
+  it('should not allow changing the protocol fee without admin signature', async () => {
+    const newFee = UInt64.from(10); // change the fee
 
     await expect(
       testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.protocolVault.contract.updateOwner(newOwner);
+        await testHelper.protocolVault.contract.setProtocolFee(newFee);
       })
-    ).rejects.toThrow(/assertEquals/i);
+    ).rejects.toThrow(/Transaction verification failed/i);
   });
 
-  it('should not allow owner to withdraw more than balance', async () => {
+  it('should fail updating the protocol fee if above 100', async () => {
+    const newFee = UInt64.from(101);
+    await expect(
+      testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.protocolVault.contract.setProtocolFee(newFee);
+        },
+        {
+          extraSigners: [testHelper.protocolAdmin.privateKey],
+        }
+      )
+    ).rejects.toThrow();
+  });
+
+  it('should not allow admin to withdraw more than balance', async () => {
     const vaultBalance = Mina.getBalance(testHelper.protocolVault.publicKey);
     const excessiveAmount = vaultBalance.add(TestAmounts.SMALL_COLLATERAL);
 
     await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.protocolVault.contract.withdraw(excessiveAmount);
-      })
+      testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.protocolVault.contract.withdrawProtocolFunds(
+            testHelper.agents.alice.account,
+            excessiveAmount
+          );
+        },
+        {
+          extraSigners: [testHelper.protocolAdmin.privateKey],
+        }
+      )
     ).rejects.toThrow();
   });
 
-  it('should allow owner to update owner', async () => {
-    const newOwner = testHelper.agents.bob.account;
-    const oldOwner = testHelper.protocolVault.contract.owner.get();
-
-    expect(oldOwner.toBase58()).toEqual(testHelper.deployer.toBase58());
-
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.protocolVault.contract.updateOwner(newOwner);
-    });
-
-    const updatedOwner = testHelper.protocolVault.contract.owner.get();
-    expect(updatedOwner.toBase58()).not.toEqual(oldOwner.toBase58());
-    expect(updatedOwner.toBase58()).toEqual(newOwner.toBase58());
-  });
-
-  it('should not allow non-owner to update verification key', async () => {
+  it('should not allow non-admin to update verification key', async () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.protocolVault.contract.updateVerificationKey(
           newVerificationKey
         );
       })
-    ).rejects.toThrow(/assertEquals/i);
+    ).rejects.toThrow(/Transaction verification failed/i);
   });
 
   // Update the verification key tests:
-  it('should allow owner to update verification key', async () => {
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.protocolVault.contract.updateVerificationKey(
-        newVerificationKey
-      );
-    });
+  it('should allow updating the verification key with admin signature', async () => {
+    await testHelper.transaction(
+      testHelper.agents.bob.account,
+      async () => {
+        await testHelper.protocolVault.contract.updateVerificationKey(
+          newVerificationKey
+        );
+      },
+      {
+        extraSigners: [testHelper.protocolAdmin.privateKey],
+      }
+    );
 
     // Verify we can use V2 functionality after upgrade
     const zkAppV2 = new ZkUsdProtocolVaultV2(

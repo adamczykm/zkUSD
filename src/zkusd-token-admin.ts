@@ -10,10 +10,12 @@ import {
 import { FungibleTokenAdminBase } from 'mina-fungible-token';
 import { ZkUsdVault } from './zkusd-vault.js';
 
-export class ZkUsdAdmin
+export class ZkUsdTokenAdmin
   extends SmartContract
   implements FungibleTokenAdminBase
 {
+  static ZkUsdVaultContract: new (...args: any) => ZkUsdVault = ZkUsdVault;
+
   async deploy(args: DeployArgs) {
     await super.deploy(args);
 
@@ -29,7 +31,9 @@ export class ZkUsdAdmin
   @method.returns(Bool)
   public async canMint(_accountUpdate: AccountUpdate) {
     //Only allow minting if called by a zkUSDVault
-    const zkUSDVault = new ZkUsdVault(_accountUpdate.publicKey);
+    const zkUSDVault = new ZkUsdTokenAdmin.ZkUsdVaultContract(
+      _accountUpdate.publicKey
+    );
     return await zkUSDVault.assertInteractionFlag();
   }
 

@@ -222,8 +222,11 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       );
     });
 
+    const currentProtocolFee =
+      testHelper.protocolVault.contract.protocolFee.get();
+
     const protocolFee = TestAmounts.SMALL_COLLATERAL.mul(
-      ZkUsdVault.PROTOCOL_FEE
+      currentProtocolFee
     ).div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
     const aliceMinaBalanceAfter = Mina.getBalance(

@@ -9,11 +9,13 @@ import {
   Field,
   UInt64,
 } from 'o1js';
-import { ZkUsdAdmin } from '../zkusd-token-admin';
+import { ZkUsdTokenAdmin } from '../zkusd-token-admin';
 import { ZkUsdVault } from '../zkusd-vault';
 import { ZkUsdProtocolVault } from '../zkusd-protocol-vault';
 import { FungibleToken } from 'mina-fungible-token';
 import { Oracle } from '../oracle';
+import { ZkUsdProtocolAdmin } from '../zkusd-protocol-admin';
+import { ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle-actions';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -55,8 +57,10 @@ export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
   token: ContractInstance<FungibleToken>;
-  admin: ContractInstance<ZkUsdAdmin>;
+  tokenAdmin: ContractInstance<ZkUsdTokenAdmin>;
   protocolVault: ContractInstance<ZkUsdProtocolVault>;
+  protocolAdmin: ContractInstance<ZkUsdProtocolAdmin>;
+  priceFeedOracle: ContractInstance<ZkUsdPriceFeedOracle>;
   currentAccountIndex: number = 0;
   Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
   oracle: Oracle;
@@ -126,13 +130,15 @@ export class TestHelper {
   }
 
   async compileContracts() {
-    await ZkUsdAdmin.compile();
+    await ZkUsdTokenAdmin.compile();
     await ZkUsdVault.compile();
+    await ZkUsdProtocolVault.compile();
+    await ZkUsdProtocolAdmin.compile();
     await FungibleToken.compile();
   }
 
   async deployTokenContracts() {
-    FungibleToken.AdminContract = ZkUsdAdmin;
+    FungibleToken.AdminContract = ZkUsdTokenAdmin;
 
     const adminKeyPair = {
       privateKey: PrivateKey.fromBase58(
@@ -161,8 +167,26 @@ export class TestHelper {
       ),
     };
 
-    this.admin = {
-      contract: new ZkUsdAdmin(adminKeyPair.publicKey),
+    const protocolAdminKeyPair = {
+      privateKey: PrivateKey.fromBase58(
+        'EKEneAjqw8NC8MF6egyKM1DgfDhhfdkVUz2zC1U9F4JiETNZgwvj'
+      ),
+      publicKey: PublicKey.fromBase58(
+        'B62qkkJyWEXwHN9zZmqzfdf2ec794EL5Nyr8hbpvqRX4BwPyQcwKJy6'
+      ),
+    };
+
+    const priceFeedOracleKeyPair = {
+      privateKey: PrivateKey.fromBase58(
+        'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
+      ),
+      publicKey: PublicKey.fromBase58(
+        'B62qkwLvZ6e5NzRgQwkTaA9m88fTUZLHmpwvmCQEqbp5KcAAfqFAaf9'
+      ),
+    };
+
+    this.tokenAdmin = {
+      contract: new ZkUsdTokenAdmin(adminKeyPair.publicKey),
       publicKey: adminKeyPair.publicKey,
       privateKey: adminKeyPair.privateKey,
     };
@@ -176,6 +200,16 @@ export class TestHelper {
       publicKey: protocolVaultKeyPair.publicKey,
       privateKey: protocolVaultKeyPair.privateKey,
     };
+    this.protocolAdmin = {
+      contract: new ZkUsdProtocolAdmin(protocolAdminKeyPair.publicKey),
+      publicKey: protocolAdminKeyPair.publicKey,
+      privateKey: protocolAdminKeyPair.privateKey,
+    };
+    this.priceFeedOracle = {
+      contract: new ZkUsdPriceFeedOracle(priceFeedOracleKeyPair.publicKey),
+      publicKey: priceFeedOracleKeyPair.publicKey,
+      privateKey: priceFeedOracleKeyPair.privateKey,
+    };
 
     if (TestHelper.proofsEnabled) {
       await this.compileContracts();
@@ -186,24 +220,32 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 4);
-        await this.admin.contract.deploy({});
+        AccountUpdate.fundNewAccount(this.deployer, 6);
+        await this.tokenAdmin.contract.deploy({});
         await this.token.contract.deploy({
           symbol: 'zkUSD',
           src: 'https://github.com/MinaFoundation/mina-fungible-token/blob/main/FungibleToken.ts',
         });
         await this.token.contract.initialize(
-          this.admin.publicKey,
+          this.tokenAdmin.publicKey,
           UInt8.from(9),
           Bool(false)
         );
-        await this.protocolVault.contract.deploy({});
+        await this.protocolVault.contract.deploy({
+          protocolFee: UInt64.from(50), // Set it at a base fee of 50%
+        });
+        await this.protocolAdmin.contract.deploy({
+          adminPublicKey: this.protocolAdmin.publicKey,
+        });
+        await this.priceFeedOracle.contract.deploy({});
       },
       {
         extraSigners: [
-          this.admin.privateKey,
+          this.tokenAdmin.privateKey,
           this.token.privateKey,
           this.protocolVault.privateKey,
+          this.protocolAdmin.privateKey,
+          this.priceFeedOracle.privateKey,
         ],
       }
     );

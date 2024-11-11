@@ -36,7 +36,7 @@ describe('zkUSD Token Admin Test Suite', () => {
             );
           },
           {
-            extraSigners: [testHelper.admin.privateKey],
+            extraSigners: [testHelper.tokenAdmin.privateKey],
           }
         )
       ).rejects.toThrow();

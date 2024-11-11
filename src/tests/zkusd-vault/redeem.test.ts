@@ -271,8 +271,11 @@ describe('zkUSD Vault Redeem Test Suite', () => {
 
     const stakingRewards = aliceVaultBalance.sub(collateralAmount!);
 
+    const currentProtocolFee =
+      testHelper.protocolVault.contract.protocolFee.get();
+
     const protocolFee = stakingRewards
-      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .mul(currentProtocolFee)
       .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
     const protocolVaultBalanceBefore = Mina.getBalance(
@@ -302,10 +305,13 @@ describe('zkUSD Vault Redeem Test Suite', () => {
       testHelper.agents.alice.vault!.publicKey!
     );
 
+    const currentProtocolFee =
+      testHelper.protocolVault.contract.protocolFee.get();
+
     // Calculate staking rewards and expected fee
     const stakingRewards = vaultBalanceBefore.sub(collateralAmount!);
     const protocolFee = stakingRewards
-      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .mul(currentProtocolFee)
       .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
     const expectedRewardsPayment = stakingRewards.sub(protocolFee);
 

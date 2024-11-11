@@ -17,6 +17,7 @@ import {
   Struct,
   UInt32,
 } from 'o1js';
+import { ZkUsdProtocolVault } from './zkusd-protocol-vault';
 
 export const ZkUsdVaultErrors = {
   AMOUNT_ZERO: 'Transaction amount must be greater than zero',
@@ -98,7 +99,6 @@ export class ZkUsdVault extends SmartContract {
 
   static COLLATERAL_RATIO = Field.from(150);
   static COLLATERAL_RATIO_PRECISION = Field.from(100);
-  static PROTOCOL_FEE = UInt64.from(50); // The percentage taken from staking rewards
   static PROTOCOL_FEE_PRECISION = UInt64.from(100);
   static UNIT_PRECISION = Field.from(1e9);
   static MIN_HEALTH_FACTOR = UInt64.from(100);
@@ -196,6 +196,11 @@ export class ZkUsdVault extends SmartContract {
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
     let balance = this.account.balance.getAndRequireEquals();
 
+    //Get the protocol vault
+    const protocolVault = new ZkUsdProtocolVault(
+      ZkUsdVault.PROTOCOL_VAULT_ADDRESS
+    );
+
     //assert balance is greater than 0
     balance.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.BALANCE_ZERO);
 
@@ -233,9 +238,12 @@ export class ZkUsdVault extends SmartContract {
     //Check if there are any staking rewards: Whatever the balance is above the collateral amount is the staking rewards
     const stakingRewards = balance.sub(collateralAmount);
 
+    //Get the protocol fee from the protocol vault
+    const currentProtocolFee = protocolVault.protocolFee.getAndRequireEquals();
+
     //Calculate the protocol fee from the staking rewards
     const protocolFee = stakingRewards
-      .mul(ZkUsdVault.PROTOCOL_FEE)
+      .mul(currentProtocolFee)
       .div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
     //If there are staking rewards, send the protocol fee to the protocol vault
