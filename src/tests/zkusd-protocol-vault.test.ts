@@ -56,14 +56,16 @@ describe('zkUSD Protocol Vault Test Suite', () => {
     await testHelper.deployVaults(['alice']);
 
     // Send some rewards to the vault
-    await testHelper.sendRewardsToVault('alice', TestAmounts.MEDIUM_COLLATERAL);
+    await testHelper.sendRewardsToVault(
+      'alice',
+      TestAmounts.COLLATERAL_50_MINA
+    );
 
     //Alice redeems the rewards, earning the protocol fee
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.redeemCollateral(
         TestAmounts.ZERO,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        testHelper.agents.alice.secret
       );
     });
   });
@@ -74,7 +76,7 @@ describe('zkUSD Protocol Vault Test Suite', () => {
     const currentProtocolFee =
       testHelper.protocolVault.contract.protocolFee.get();
 
-    const protocolFee = TestAmounts.MEDIUM_COLLATERAL.mul(
+    const protocolFee = TestAmounts.COLLATERAL_50_MINA.mul(
       currentProtocolFee
     ).div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
@@ -92,7 +94,7 @@ describe('zkUSD Protocol Vault Test Suite', () => {
       async () => {
         await testHelper.protocolVault.contract.withdrawProtocolFunds(
           testHelper.deployer,
-          TestAmounts.SMALL_COLLATERAL
+          TestAmounts.COLLATERAL_1_MINA
         );
       },
       {
@@ -106,10 +108,10 @@ describe('zkUSD Protocol Vault Test Suite', () => {
     );
 
     expect(vaultBalanceAfter).toEqual(
-      vaultBalanceBefore.sub(TestAmounts.SMALL_COLLATERAL)
+      vaultBalanceBefore.sub(TestAmounts.COLLATERAL_1_MINA)
     );
     expect(adminBalanceAfter).toEqual(
-      adminBalanceBefore.add(TestAmounts.SMALL_COLLATERAL)
+      adminBalanceBefore.add(TestAmounts.COLLATERAL_1_MINA)
     );
   });
 
@@ -134,7 +136,7 @@ describe('zkUSD Protocol Vault Test Suite', () => {
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.protocolVault.contract.withdrawProtocolFunds(
           testHelper.agents.alice.account,
-          TestAmounts.SMALL_COLLATERAL
+          TestAmounts.COLLATERAL_1_MINA
         );
       })
     ).rejects.toThrow(/Transaction verification failed/i);
@@ -167,7 +169,7 @@ describe('zkUSD Protocol Vault Test Suite', () => {
 
   it('should not allow admin to withdraw more than balance', async () => {
     const vaultBalance = Mina.getBalance(testHelper.protocolVault.publicKey);
-    const excessiveAmount = vaultBalance.add(TestAmounts.SMALL_COLLATERAL);
+    const excessiveAmount = vaultBalance.add(TestAmounts.COLLATERAL_1_MINA);
 
     await expect(
       testHelper.transaction(

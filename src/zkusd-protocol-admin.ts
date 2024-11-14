@@ -58,19 +58,7 @@ export class ZkUsdProtocolAdmin extends SmartContract {
   }
 
   @method.returns(Bool)
-  public async canAddNewWhitelistAddress(_accountUpdate: AccountUpdate) {
-    await this.ensureAdminSignature();
-    return Bool(true);
-  }
-
-  @method.returns(Bool)
-  public async canRemoveWhitelistAddress(_accountUpdate: AccountUpdate) {
-    await this.ensureAdminSignature();
-    return Bool(true);
-  }
-
-  @method.returns(Bool)
-  public async canReinstateWhitelistAddress(_accountUpdate: AccountUpdate) {
+  public async canUpdateWhitelist(_accountUpdate: AccountUpdate) {
     await this.ensureAdminSignature();
     return Bool(true);
   }

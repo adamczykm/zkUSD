@@ -16,7 +16,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     // Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.depositCollateral(
-        TestAmounts.LARGE_COLLATERAL,
+        TestAmounts.COLLATERAL_100_MINA,
         testHelper.agents.alice.secret
       );
     });
@@ -25,9 +25,8 @@ describe('zkUSD Vault Burn Test Suite', () => {
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
       await testHelper.agents.alice.vault?.contract.mintZkUsd(
-        TestAmounts.LARGE_ZKUSD,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_30_ZKUSD,
+        testHelper.agents.alice.secret
       );
     });
 
@@ -37,7 +36,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
       async () => {
         AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.LARGE_ZKUSD,
+          TestAmounts.DEBT_30_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -57,7 +56,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
 
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.burnZkUsd(
-        TestAmounts.SMALL_ZKUSD,
+        TestAmounts.DEBT_1_ZKUSD,
         testHelper.agents.alice.secret
       );
     });
@@ -69,10 +68,10 @@ describe('zkUSD Vault Burn Test Suite', () => {
     );
 
     expect(vaultFinalDebt).toEqual(
-      vaultStartingDebt?.sub(TestAmounts.SMALL_ZKUSD)
+      vaultStartingDebt?.sub(TestAmounts.DEBT_1_ZKUSD)
     );
     expect(aliceFinalBalance).toEqual(
-      aliceStartingBalance.sub(TestAmounts.SMALL_ZKUSD)
+      aliceStartingBalance.sub(TestAmounts.DEBT_1_ZKUSD)
     );
   });
 
@@ -91,7 +90,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.burnZkUsd(
-          TestAmounts.SMALL_ZKUSD,
+          TestAmounts.DEBT_1_ZKUSD,
           Field.random()
         );
       })
@@ -133,19 +132,19 @@ describe('zkUSD Vault Burn Test Suite', () => {
       await testHelper.token.contract.transfer(
         testHelper.agents.alice.account,
         testHelper.agents.bob.account,
-        TestAmounts.SMALL_ZKUSD
+        TestAmounts.DEBT_1_ZKUSD
       );
     });
 
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       await testHelper.agents.alice.vault?.contract.burnZkUsd(
-        TestAmounts.SMALL_ZKUSD,
+        TestAmounts.DEBT_1_ZKUSD,
         testHelper.agents.alice.secret
       );
     });
 
     const finalDebt = testHelper.agents.alice.vault?.contract.debtAmount.get();
-    expect(finalDebt).toEqual(startingDebt?.sub(TestAmounts.SMALL_ZKUSD));
+    expect(finalDebt).toEqual(startingDebt?.sub(TestAmounts.DEBT_1_ZKUSD));
   });
 
   it('should track debt correctly after multiple burns', async () => {
@@ -158,7 +157,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
         testHelper.agents.alice.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.burnZkUsd(
-            TestAmounts.TINY_ZKUSD,
+            TestAmounts.DEBT_10_CENT_ZKUSD,
             testHelper.agents.alice.secret
           );
         }
@@ -166,7 +165,9 @@ describe('zkUSD Vault Burn Test Suite', () => {
     }
 
     const finalDebt = testHelper.agents.alice.vault?.contract.debtAmount.get();
-    expect(finalDebt).toEqual(initialDebt?.sub(TestAmounts.TINY_ZKUSD.mul(3)));
+    expect(finalDebt).toEqual(
+      initialDebt?.sub(TestAmounts.DEBT_10_CENT_ZKUSD.mul(3))
+    );
   });
 
   it('should fail if trying to burn without sufficient zkUSD balance', async () => {
@@ -186,7 +187,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.burnZkUsd(
-          TestAmounts.TINY_ZKUSD,
+          TestAmounts.DEBT_10_CENT_ZKUSD,
           testHelper.agents.alice.secret
         );
       })

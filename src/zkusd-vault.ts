@@ -18,6 +18,7 @@ import {
   UInt32,
 } from 'o1js';
 import { ZkUsdProtocolVault } from './zkusd-protocol-vault';
+import { ZkUsdPriceFeedOracle } from './zkusd-price-feed-oracle';
 
 export const ZkUsdVaultErrors = {
   AMOUNT_ZERO: 'Transaction amount must be greater than zero',
@@ -103,7 +104,7 @@ export class ZkUsdVault extends SmartContract {
   static UNIT_PRECISION = Field.from(1e9);
   static MIN_HEALTH_FACTOR = UInt64.from(100);
   static ORACLE_PUBLIC_KEY = PublicKey.fromBase58(
-    'B62qkQA5kdAsyvizsSdZ9ztzNidsqNXj9YrESPkMwUPt1J8RYDGkjAY'
+    'B62qkwLvZ6e5NzRgQwkTaA9m88fTUZLHmpwvmCQEqbp5KcAAfqFAaf9'
   );
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
     'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
@@ -154,7 +155,7 @@ export class ZkUsdVault extends SmartContract {
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
 
     //assert amount is greater than 0
-    amount.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.AMOUNT_ZERO);
+    amount.assertGreaterThan(UInt64.zero, ZkUsdVaultErrors.AMOUNT_ZERO);
 
     //Assert the ownership secret is correct
     ownershipHash.assertEquals(
@@ -185,16 +186,16 @@ export class ZkUsdVault extends SmartContract {
     );
   }
 
-  @method async redeemCollateral(
-    amount: UInt64,
-    secret: Field,
-    oraclePayload: OraclePayload
-  ) {
+  @method async redeemCollateral(amount: UInt64, secret: Field) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
     let balance = this.account.balance.getAndRequireEquals();
+
+    //Get the current price from the oracle
+    const oracle = new ZkUsdPriceFeedOracle(ZkUsdVault.ORACLE_PUBLIC_KEY);
+    const price = await oracle.getPrice();
 
     //Get the protocol vault
     const protocolVault = new ZkUsdProtocolVault(
@@ -210,9 +211,6 @@ export class ZkUsdVault extends SmartContract {
       ZkUsdVaultErrors.INVALID_SECRET
     );
 
-    //verify the oracle price
-    this.verifyOraclePayload(oraclePayload);
-
     //Assert the amount is less than or equal to the collateral amount
     amount.assertLessThanOrEqual(
       collateralAmount,
@@ -226,7 +224,7 @@ export class ZkUsdVault extends SmartContract {
     const healthFactor = this.calculateHealthFactor(
       remainingCollateral,
       debtAmount,
-      oraclePayload.price
+      price
     );
 
     //Assert the health factor is greater than the minimum health factor
@@ -279,15 +277,15 @@ export class ZkUsdVault extends SmartContract {
     );
   }
 
-  @method async mintZkUsd(
-    amount: UInt64,
-    secret: Field,
-    oraclePayload: OraclePayload
-  ) {
+  @method async mintZkUsd(amount: UInt64, secret: Field) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
+
+    //Get the current price from the oracle
+    const oracle = new ZkUsdPriceFeedOracle(ZkUsdVault.ORACLE_PUBLIC_KEY);
+    const price = await oracle.getPrice();
 
     //Assert the sender has the secret
     const zkUSD = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
@@ -301,13 +299,11 @@ export class ZkUsdVault extends SmartContract {
       ZkUsdVaultErrors.INVALID_SECRET
     );
 
-    //Verify the oracle price
-    this.verifyOraclePayload(oraclePayload);
-
+    //Calculate the health factor
     const healthFactor = this.calculateHealthFactor(
       collateralAmount,
       debtAmount.add(amount), // Add the amount they want to mint to the debt
-      oraclePayload.price
+      price
     );
 
     //Assert the health factor is greater than the minimum health factor
@@ -421,22 +417,23 @@ export class ZkUsdVault extends SmartContract {
     );
   }
 
-  @method async liquidate(oraclePayload: OraclePayload) {
+  @method async liquidate() {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
 
+    //Get the current price from the oracle
+    const oracle = new ZkUsdPriceFeedOracle(ZkUsdVault.ORACLE_PUBLIC_KEY);
+    const price = await oracle.getPrice();
+
     //Get the zkUSD token
     const zkUSD = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
-
-    //Verify the oracle price
-    this.verifyOraclePayload(oraclePayload);
 
     //Calculate the health factor
     const healthFactor = this.calculateHealthFactor(
       collateralAmount,
       debtAmount,
-      oraclePayload.price
+      price
     );
 
     //Assert the health factor is less than the minimum health factor
@@ -468,20 +465,21 @@ export class ZkUsdVault extends SmartContract {
         liquidator: this.sender.getUnconstrainedV2(),
         vaultCollateralLiquidated: collateralAmount,
         vaultDebtRepaid: debtAmount,
-        price: oraclePayload.price,
+        price: price,
       })
     );
   }
 
   @method.returns(UInt64)
-  async getHealthFactor(oraclePayload: OraclePayload) {
-    //Verify the oracle price
-    this.verifyOraclePayload(oraclePayload);
+  async getHealthFactor() {
+    //Get the current price from the oracle
+    const oracle = new ZkUsdPriceFeedOracle(ZkUsdVault.ORACLE_PUBLIC_KEY);
+    const price = await oracle.getPrice();
 
     return this.calculateHealthFactor(
       this.collateralAmount.getAndRequireEquals(),
       this.debtAmount.getAndRequireEquals(),
-      oraclePayload.price
+      price
     );
   }
 

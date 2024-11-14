@@ -16,7 +16,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     // Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.depositCollateral(
-        TestAmounts.LARGE_COLLATERAL,
+        TestAmounts.COLLATERAL_100_MINA,
         testHelper.agents.alice.secret
       );
     });
@@ -24,7 +24,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     // Bob deposits 900 Mina
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       await testHelper.agents.bob.vault?.contract.depositCollateral(
-        TestAmounts.EXTRA_LARGE_COLLATERAL,
+        TestAmounts.COLLATERAL_900_MINA,
         testHelper.agents.bob.secret
       );
     });
@@ -33,9 +33,8 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
       await testHelper.agents.alice.vault?.contract.mintZkUsd(
-        TestAmounts.LARGE_ZKUSD,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_30_ZKUSD,
+        testHelper.agents.alice.secret
       );
     });
 
@@ -43,9 +42,8 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.bob.account, 1);
       await testHelper.agents.bob.vault?.contract.mintZkUsd(
-        TestAmounts.EXTRA_LARGE_ZKUSD,
-        testHelper.agents.bob.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_100_ZKUSD,
+        testHelper.agents.bob.secret
       );
     });
 
@@ -55,7 +53,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       async () => {
         AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.LARGE_ZKUSD,
+          TestAmounts.DEBT_30_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -70,7 +68,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       async () => {
         AccountUpdate.fundNewAccount(testHelper.agents.bob.account, 1);
         await testHelper.agents.bob.vault?.contract.withdrawZkUsd(
-          TestAmounts.EXTRA_LARGE_ZKUSD,
+          TestAmounts.DEBT_100_ZKUSD,
           testHelper.agents.bob.secret
         );
       },
@@ -83,16 +81,14 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   it('should fail if vault is sufficiently collateralized', async () => {
     await expect(
       testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.agents.alice.vault?.contract.liquidate(
-          testHelper.oracle.getSignedPrice()
-        );
+        await testHelper.agents.alice.vault?.contract.liquidate();
       })
     ).rejects.toThrow(ZkUsdVaultErrors.HEALTH_FACTOR_TOO_HIGH);
   });
 
   it('should fail liquidation if liquidator does not have sufficent zkUsd', async () => {
     //Price drops to 0.25
-    testHelper.oracle.setPrice(new UInt64(0.25e9));
+    await testHelper.updateOraclePrice(TestAmounts.PRICE_25_CENT);
 
     //Bob transfers 1 zkUSD to Charlie
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
@@ -100,15 +96,13 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       await testHelper.token.contract.transfer(
         testHelper.agents.bob.account,
         testHelper.agents.charlie.account,
-        TestAmounts.SMALL_ZKUSD
+        TestAmounts.DEBT_1_ZKUSD
       );
     });
 
     await expect(
       testHelper.transaction(testHelper.agents.charlie.account, async () => {
-        await testHelper.agents.alice.vault?.contract.liquidate(
-          testHelper.oracle.getSignedPrice()
-        );
+        await testHelper.agents.alice.vault?.contract.liquidate();
       })
     ).rejects.toThrow();
   });
@@ -125,9 +119,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
 
     await expect(
       testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.agents.alice.vault?.contract.liquidate(
-          testHelper.oracle.getSignedPrice()
-        );
+        await testHelper.agents.alice.vault?.contract.liquidate();
       })
     ).rejects.toThrow();
   });
@@ -141,9 +133,6 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       AccountUpdate.attachToTransaction(au);
       au.requireSignature();
     });
-
-    //Price drops to 0.25
-    testHelper.oracle.setPrice(new UInt64(0.25e9));
 
     //Alice's position is now undercollateralized
     //Compare preliquidation balances to postliquidation balances
@@ -164,17 +153,9 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    await testHelper.transaction(
-      testHelper.agents.bob.account,
-      async () => {
-        await testHelper.agents.alice.vault?.contract.liquidate(
-          testHelper.oracle.getSignedPrice()
-        );
-      },
-      {
-        printTx: true,
-      }
-    );
+    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+      await testHelper.agents.alice.vault?.contract.liquidate();
+    });
 
     const aliceVaultCollateralPostLiq =
       testHelper.agents.alice.vault?.contract.collateralAmount.get();
@@ -208,7 +189,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   });
 
   it('should let the user redeem rewards after liquidation', async () => {
-    await testHelper.sendRewardsToVault('alice', TestAmounts.SMALL_COLLATERAL);
+    await testHelper.sendRewardsToVault('alice', TestAmounts.COLLATERAL_1_MINA);
 
     const aliceMinaBalanceBefore = Mina.getBalance(
       testHelper.agents.alice.account
@@ -217,15 +198,14 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.redeemCollateral(
         TestAmounts.ZERO,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        testHelper.agents.alice.secret
       );
     });
 
     const currentProtocolFee =
       testHelper.protocolVault.contract.protocolFee.get();
 
-    const protocolFee = TestAmounts.SMALL_COLLATERAL.mul(
+    const protocolFee = TestAmounts.COLLATERAL_1_MINA.mul(
       currentProtocolFee
     ).div(ZkUsdVault.PROTOCOL_FEE_PRECISION);
 
@@ -234,7 +214,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     );
 
     // Calculate expected rewards
-    const expectedRewards = TestAmounts.SMALL_COLLATERAL.sub(protocolFee);
+    const expectedRewards = TestAmounts.COLLATERAL_1_MINA.sub(protocolFee);
 
     expect(aliceMinaBalanceAfter).toEqual(
       aliceMinaBalanceBefore.add(expectedRewards)

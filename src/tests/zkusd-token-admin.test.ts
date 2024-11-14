@@ -19,7 +19,7 @@ describe('zkUSD Token Admin Test Suite', () => {
         testHelper.transaction(testHelper.agents.alice.account, async () => {
           await testHelper.token.contract.mint(
             testHelper.agents.alice.account,
-            TestAmounts.SMALL_ZKUSD
+            TestAmounts.DEBT_1_ZKUSD
           );
         })
       ).rejects.toThrow();
@@ -32,7 +32,7 @@ describe('zkUSD Token Admin Test Suite', () => {
           async () => {
             await testHelper.token.contract.mint(
               testHelper.agents.alice.account,
-              TestAmounts.SMALL_ZKUSD
+              TestAmounts.DEBT_1_ZKUSD
             );
           },
           {
@@ -50,7 +50,7 @@ describe('zkUSD Token Admin Test Suite', () => {
         testHelper.agents.alice.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.depositCollateral(
-            TestAmounts.LARGE_COLLATERAL,
+            TestAmounts.COLLATERAL_100_MINA,
             testHelper.agents.alice.secret
           );
         }
@@ -62,20 +62,16 @@ describe('zkUSD Token Admin Test Suite', () => {
         async () => {
           AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
           await testHelper.agents.alice.vault?.contract.mintZkUsd(
-            TestAmounts.MEDIUM_ZKUSD,
-            testHelper.agents.alice.secret,
-            testHelper.oracle.getSignedPrice()
+            TestAmounts.DEBT_5_ZKUSD,
+            testHelper.agents.alice.secret
           );
-        },
-        {
-          printTx: true,
         }
       );
 
       const balance = await testHelper.token.contract.getBalanceOf(
         testHelper.agents.alice.vault!.publicKey
       );
-      expect(balance).toEqual(TestAmounts.MEDIUM_ZKUSD);
+      expect(balance).toEqual(TestAmounts.DEBT_5_ZKUSD);
     });
 
     it('should reset interaction flag after minting', async () => {
@@ -93,7 +89,7 @@ describe('zkUSD Token Admin Test Suite', () => {
         async () => {
           AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
           await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-            TestAmounts.MEDIUM_ZKUSD,
+            TestAmounts.DEBT_5_ZKUSD,
             testHelper.agents.alice.secret
           );
         },
@@ -109,11 +105,8 @@ describe('zkUSD Token Admin Test Suite', () => {
         async () => {
           await testHelper.token.contract.burn(
             testHelper.agents.alice.account,
-            TestAmounts.SMALL_ZKUSD
+            TestAmounts.DEBT_1_ZKUSD
           );
-        },
-        {
-          printTx: true,
         }
       );
     });

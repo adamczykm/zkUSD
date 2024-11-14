@@ -24,7 +24,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
     //Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.depositCollateral(
-        TestAmounts.LARGE_COLLATERAL,
+        TestAmounts.COLLATERAL_100_MINA,
         testHelper.agents.alice.secret
       );
     });
@@ -34,9 +34,8 @@ describe('zkUSD Vault Mint Test Suite', () => {
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
       await testHelper.agents.alice.vault?.contract.mintZkUsd(
-        TestAmounts.MEDIUM_ZKUSD,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_5_ZKUSD,
+        testHelper.agents.alice.secret
       );
     });
 
@@ -50,8 +49,8 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     const debtAmount = testHelper.agents.alice.vault?.contract.debtAmount.get();
 
-    expect(vaultBalance).toEqual(TestAmounts.MEDIUM_ZKUSD);
-    expect(debtAmount).toEqual(TestAmounts.MEDIUM_ZKUSD);
+    expect(vaultBalance).toEqual(TestAmounts.DEBT_5_ZKUSD);
+    expect(debtAmount).toEqual(TestAmounts.DEBT_5_ZKUSD);
     expect(aliceBalance).toEqual(TestAmounts.ZERO);
   });
 
@@ -65,56 +64,17 @@ describe('zkUSD Vault Mint Test Suite', () => {
         testHelper.agents.alice.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.mintZkUsd(
-            TestAmounts.SMALL_ZKUSD,
-            testHelper.agents.alice.secret,
-            testHelper.oracle.getSignedPrice()
+            TestAmounts.DEBT_1_ZKUSD,
+            testHelper.agents.alice.secret
           );
         }
       );
     }
 
     const finalDebt = testHelper.agents.alice.vault?.contract.debtAmount.get();
-    expect(finalDebt).toEqual(initialDebt?.add(TestAmounts.SMALL_ZKUSD.mul(3)));
-  });
-
-  it('should fail if oracle payload is signed with wrong private key', async () => {
-    const wrongKeyPair = PrivateKey.randomKeypair();
-    const wrongSignature = Signature.create(wrongKeyPair.privateKey, [
-      ...testHelper.oracle.getSignedPrice().price.toFields(),
-      ...testHelper.oracle.getSignedPrice().blockchainLength.toFields(),
-    ]);
-
-    const invalidPayload = new OraclePayload({
-      ...testHelper.oracle.getSignedPrice(),
-      signature: wrongSignature,
-    });
-
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.agents.alice.vault?.contract.mintZkUsd(
-          TestAmounts.MEDIUM_ZKUSD,
-          testHelper.agents.alice.secret,
-          invalidPayload
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.INVALID_ORACLE_SIG);
-  });
-
-  it('should fail if oracle payload is no longer valid', async () => {
-    const LONG_BLOCKCHAIN_LENGTH = UInt32.from(999);
-
-    const validPayload = testHelper.oracle.getSignedPrice();
-    testHelper.Local.setBlockchainLength(LONG_BLOCKCHAIN_LENGTH);
-
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.agents.alice.vault?.contract.mintZkUsd(
-          TestAmounts.MEDIUM_ZKUSD,
-          testHelper.agents.alice.secret,
-          validPayload
-        );
-      })
-    ).rejects.toThrow();
+    expect(finalDebt).toEqual(
+      initialDebt?.add(TestAmounts.DEBT_1_ZKUSD.mul(3))
+    );
   });
 
   it('should fail if mint amount is zero', async () => {
@@ -122,8 +82,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.mintZkUsd(
           TestAmounts.ZERO,
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
+          testHelper.agents.alice.secret
         );
       })
     ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_ZERO);
@@ -134,8 +93,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.mintZkUsd(
           UInt64.from(-1),
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
+          testHelper.agents.alice.secret
         );
       })
     ).rejects.toThrow();
@@ -145,9 +103,8 @@ describe('zkUSD Vault Mint Test Suite', () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.mintZkUsd(
-          TestAmounts.MEDIUM_ZKUSD,
-          Field.random(),
-          testHelper.oracle.getSignedPrice()
+          TestAmounts.DEBT_5_ZKUSD,
+          Field.random()
         );
       })
     ).rejects.toThrow(ZkUsdVaultErrors.INVALID_SECRET);
@@ -160,8 +117,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.mintZkUsd(
           LARGE_ZKUSD_AMOUNT,
-          testHelper.agents.alice.secret,
-          testHelper.oracle.getSignedPrice()
+          testHelper.agents.alice.secret
         );
       })
     ).rejects.toThrow(ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW);
@@ -177,8 +133,8 @@ describe('zkUSD Vault Mint Test Suite', () => {
       const healthFactor =
         testHelper.agents.alice.vault?.contract.calculateHealthFactor(
           initialCollateral!,
-          currentDebt!.add(TestAmounts.SMALL_ZKUSD),
-          testHelper.oracle.getSignedPrice().price
+          currentDebt!.add(TestAmounts.DEBT_1_ZKUSD),
+          await testHelper.priceFeedOracle.contract.getPrice()
         );
 
       // Only mint if health factor would remain above minimum
@@ -187,13 +143,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
           testHelper.agents.alice.account,
           async () => {
             await testHelper.agents.alice.vault?.contract.mintZkUsd(
-              TestAmounts.SMALL_ZKUSD,
-              testHelper.agents.alice.secret,
-              testHelper.oracle.getSignedPrice()
+              TestAmounts.DEBT_1_ZKUSD,
+              testHelper.agents.alice.secret
             );
           }
         );
-        currentDebt = currentDebt?.add(TestAmounts.SMALL_ZKUSD);
+        currentDebt = currentDebt?.add(TestAmounts.DEBT_1_ZKUSD);
       }
     }
 
@@ -201,7 +156,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.agents.alice.vault?.contract.calculateHealthFactor(
         initialCollateral!,
         currentDebt!,
-        testHelper.oracle.getSignedPrice().price
+        await testHelper.priceFeedOracle.contract.getPrice()
       );
 
     expect(
@@ -218,9 +173,8 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       await testHelper.agents.alice.vault?.contract.mintZkUsd(
-        TestAmounts.MEDIUM_ZKUSD,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_5_ZKUSD,
+        testHelper.agents.alice.secret
       );
     });
 
@@ -229,9 +183,9 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.agents.alice.vault!.publicKey
     );
 
-    expect(debtAmount).toEqual(debtAmountBefore?.add(TestAmounts.MEDIUM_ZKUSD));
+    expect(debtAmount).toEqual(debtAmountBefore?.add(TestAmounts.DEBT_5_ZKUSD));
     expect(vaultBalance).toEqual(
-      vaultBalanceBefore.add(TestAmounts.MEDIUM_ZKUSD)
+      vaultBalanceBefore.add(TestAmounts.DEBT_5_ZKUSD)
     );
   });
 });

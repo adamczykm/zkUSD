@@ -16,7 +16,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
     //Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       await testHelper.agents.alice.vault?.contract.depositCollateral(
-        TestAmounts.LARGE_COLLATERAL,
+        TestAmounts.COLLATERAL_100_MINA,
         testHelper.agents.alice.secret
       );
     });
@@ -25,9 +25,8 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
       await testHelper.agents.alice.vault?.contract.mintZkUsd(
-        TestAmounts.MEDIUM_ZKUSD,
-        testHelper.agents.alice.secret,
-        testHelper.oracle.getSignedPrice()
+        TestAmounts.DEBT_5_ZKUSD,
+        testHelper.agents.alice.secret
       );
     });
   });
@@ -39,7 +38,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
       async () => {
         AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.SMALL_ZKUSD,
+          TestAmounts.DEBT_1_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -58,18 +57,18 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
 
     const debtAmount = testHelper.agents.alice.vault?.contract.debtAmount.get();
 
-    expect(aliceBalance).toEqual(TestAmounts.SMALL_ZKUSD);
+    expect(aliceBalance).toEqual(TestAmounts.DEBT_1_ZKUSD);
     expect(vaultBalance).toEqual(
-      TestAmounts.MEDIUM_ZKUSD.sub(TestAmounts.SMALL_ZKUSD)
+      TestAmounts.DEBT_5_ZKUSD.sub(TestAmounts.DEBT_1_ZKUSD)
     );
-    expect(debtAmount).toEqual(TestAmounts.MEDIUM_ZKUSD); // Debt should remain the same
+    expect(debtAmount).toEqual(TestAmounts.DEBT_5_ZKUSD); // Debt should remain the same
   });
 
   it('should fail if we dont sign with the vault private key', async () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.SMALL_ZKUSD,
+          TestAmounts.DEBT_1_ZKUSD,
           testHelper.agents.alice.secret
         );
       })
@@ -120,7 +119,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
         testHelper.agents.alice.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-            TestAmounts.SMALL_ZKUSD,
+            TestAmounts.DEBT_1_ZKUSD,
             Field.random()
           );
         },
@@ -143,7 +142,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
       async () => {
         AccountUpdate.fundNewAccount(testHelper.agents.bob.account, 1);
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.SMALL_ZKUSD,
+          TestAmounts.DEBT_1_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -162,9 +161,9 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
 
     expect(debtAmount).toEqual(debtAmountBefore);
     expect(vaultBalance).toEqual(
-      vaultBalanceBefore.sub(TestAmounts.SMALL_ZKUSD)
+      vaultBalanceBefore.sub(TestAmounts.DEBT_1_ZKUSD)
     );
-    expect(bobBalance).toEqual(TestAmounts.SMALL_ZKUSD);
+    expect(bobBalance).toEqual(TestAmounts.DEBT_1_ZKUSD);
   });
 
   it('should fail if withdrawal amount is negative', async () => {
@@ -194,7 +193,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
       testHelper.agents.alice.account,
       async () => {
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.TINY_ZKUSD,
+          TestAmounts.DEBT_10_CENT_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -208,7 +207,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
       testHelper.agents.alice.account,
       async () => {
         await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-          TestAmounts.TINY_ZKUSD,
+          TestAmounts.DEBT_10_CENT_ZKUSD,
           testHelper.agents.alice.secret
         );
       },
@@ -222,7 +221,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
     );
 
     expect(aliceBalance).toEqual(
-      aliceBalanceBefore.add(TestAmounts.TINY_ZKUSD.mul(2))
+      aliceBalanceBefore.add(TestAmounts.DEBT_10_CENT_ZKUSD.mul(2))
     );
   });
 
@@ -232,7 +231,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
         testHelper.agents.charlie.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-            TestAmounts.SMALL_ZKUSD,
+            TestAmounts.DEBT_1_ZKUSD,
             testHelper.agents.alice.secret
           );
         },
@@ -256,7 +255,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
         testHelper.agents.alice.account,
         async () => {
           await testHelper.agents.alice.vault?.contract.withdrawZkUsd(
-            TestAmounts.TINY_ZKUSD,
+            TestAmounts.DEBT_10_CENT_ZKUSD,
             testHelper.agents.alice.secret
           );
         },
@@ -274,7 +273,7 @@ describe('zkUSD Vault Withdraw Test Suite', () => {
 
     // Vault balance should decrease by total withdrawn amount
     expect(finalVaultBalance).toEqual(
-      initialVaultBalance.sub(TestAmounts.TINY_ZKUSD.mul(3))
+      initialVaultBalance.sub(TestAmounts.DEBT_10_CENT_ZKUSD.mul(3))
     );
     // Debt amount should remain unchanged
     expect(finalDebtAmount).toEqual(initialDebtAmount);
