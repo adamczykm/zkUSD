@@ -222,7 +222,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         privateKey: privateKey,
       });
 
-      //transfer each oracle 10 mina
+      //transfer each oracle 50 mina
 
       await testHelper.transaction(testHelper.deployer, async () => {
         AccountUpdate.fundNewAccount(testHelper.deployer, 1);
@@ -371,6 +371,22 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       })
     ).rejects.toThrow(/Transaction verification failed/i);
+  });
+
+  it('should not allow the fallback price to be updated to 0', async () => {
+    await expect(
+      testHelper.transaction(
+        testHelper.deployer,
+        async () => {
+          await testHelper.priceFeedOracle.contract.updateFallbackPrice(
+            TestAmounts.ZERO
+          );
+        },
+        {
+          extraSigners: [testHelper.protocolAdmin.privateKey],
+        }
+      )
+    ).rejects.toThrow(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
   });
 
   it('should not allow the fallback price to be updated to 0', async () => {

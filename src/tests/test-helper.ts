@@ -44,6 +44,7 @@ export class TestAmounts {
   static COLLATERAL_900_MINA = UInt64.from(900e9); // 900 Mina
   static COLLATERAL_100_MINA = UInt64.from(100e9); // 100 Mina
   static COLLATERAL_50_MINA = UInt64.from(50e9); // 50 Mina
+  static COLLATERAL_2_MINA = UInt64.from(2e9); // 2 Mina
   static COLLATERAL_1_MINA = UInt64.from(1e9); // 1 Mina
 
   // zkUSD amounts
@@ -304,6 +305,7 @@ export class TestHelper {
         });
         await this.priceFeedOracle.contract.deploy({
           initialPrice: TestAmounts.PRICE_1_USD,
+          oracleFee: TestAmounts.COLLATERAL_1_MINA,
         });
       },
       {
@@ -334,6 +336,15 @@ export class TestHelper {
         extraSigners: [this.protocolAdmin.privateKey],
       }
     );
+
+    //Transfer Mina to the price feed oracle to pay the oracle fee
+    await this.transaction(this.deployer, async () => {
+      let transfer = AccountUpdate.createSigned(this.deployer);
+      transfer.send({
+        to: this.priceFeedOracle.publicKey,
+        amount: TestAmounts.COLLATERAL_100_MINA,
+      });
+    });
   }
 
   async deployVaults(names: string[]) {

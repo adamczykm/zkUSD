@@ -50,6 +50,7 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   @state(UInt64) fallbackPriceOddBlock = State<UInt64>();
   @state(Field) actionState = State<Field>();
   @state(Field) whitelistHash = State<Field>();
+  @state(UInt64) oracleFee = State<UInt64>(); // Fee in Mina to pay to the oracle
 
   static MAX_PARTICIPANTS = 10;
   static ZKUSD_PROTOCOL_ADMIN_KEY = PublicKey.fromBase58(
@@ -59,14 +60,16 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     ZkUsdPriceFeedOracle.ZKUSD_PROTOCOL_ADMIN_KEY
   );
 
-  async deploy(args: DeployArgs & { initialPrice: UInt64 }) {
+  async deploy(args: DeployArgs & { initialPrice: UInt64; oracleFee: UInt64 }) {
     await super.deploy(args);
 
     this.account.permissions.set({
       ...Permissions.default(),
-      setVerificationKey: Permissions.VerificationKey.proofOrSignature(),
+      setVerificationKey:
+        Permissions.VerificationKey.impossibleDuringCurrentVersion(),
       setPermissions: Permissions.impossible(),
       editState: Permissions.proof(),
+      send: Permissions.proof(),
     });
 
     this.whitelistHash.set(Field(0));
@@ -75,6 +78,7 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     this.priceOddBlock.set(args.initialPrice);
     this.fallbackPriceEvenBlock.set(args.initialPrice);
     this.fallbackPriceOddBlock.set(args.initialPrice);
+    this.oracleFee.set(args.oracleFee);
   }
 
   // Helper methods for block management
@@ -177,6 +181,16 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     );
   }
 
+  @method async setOracleFee(fee: UInt64) {
+    const canSetFee =
+      await ZkUsdPriceFeedOracle.ZkUsdProtocolAdminContract.canSetOracleFee(
+        this.self
+      );
+    canSetFee.assertTrue(); //TODO: Add message
+
+    this.oracleFee.set(fee);
+  }
+
   @method async updateWhitelist(whitelist: Whitelist) {
     this.whitelistHash.getAndRequireEquals();
 
@@ -219,6 +233,8 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   @method async submitPrice(price: UInt64, whitelist: Whitelist) {
     const submitter = this.sender.getAndRequireSignatureV2();
 
+    const oracleFee = this.oracleFee.getAndRequireEquals();
+
     //Ensure price is greater than zero
     price
       .greaterThan(UInt64.zero)
@@ -231,6 +247,13 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
       address: submitter,
       price,
     });
+
+    // Pay the oracle fee for the price submission
+
+    const receiverUpdate = AccountUpdate.createSigned(submitter);
+
+    receiverUpdate.balance.addInPlace(oracleFee);
+    this.balance.subInPlace(oracleFee);
 
     this.reducer.dispatch(priceFeedAction);
   }

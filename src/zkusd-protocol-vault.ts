@@ -42,7 +42,7 @@ export class ZkUsdProtocolVault extends SmartContract {
   @method
   async updateVerificationKey(vk: VerificationKey) {
     const canUpdate =
-      await ZkUsdProtocolVault.ZkUsdProtocolAdminContract.canUpdateVerificationKey(
+      await ZkUsdProtocolVault.ZkUsdProtocolAdminContract.canUpdateProtocolVaultVerificationKey(
         this.self
       );
     canUpdate.assertTrue(); //TODO: Add message

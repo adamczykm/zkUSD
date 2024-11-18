@@ -6,6 +6,7 @@ import {
   SmartContract,
   Permissions,
   DeployArgs,
+  VerificationKey,
 } from 'o1js';
 import { FungibleTokenAdminBase } from 'mina-fungible-token';
 import { ZkUsdVault } from './zkusd-vault.js';
@@ -26,6 +27,14 @@ export class ZkUsdTokenAdmin
         Permissions.VerificationKey.impossibleDuringCurrentVersion(),
       setPermissions: Permissions.impossible(),
     });
+  }
+
+  /** Update the verification key.
+   * Note that because we have set the permissions for setting the verification key to `impossibleDuringCurrentVersion()`, this will only be possible in case of a protocol update that requires an update.
+   */
+  @method
+  async updateVerificationKey(vk: VerificationKey) {
+    this.account.verificationKey.set(vk);
   }
 
   @method.returns(Bool)

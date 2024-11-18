@@ -10,6 +10,7 @@ import {
   AccountUpdate,
   Provable,
   assert,
+  VerificationKey,
 } from 'o1js';
 
 export class ZkUsdProtocolAdmin extends SmartContract {
@@ -21,9 +22,6 @@ export class ZkUsdProtocolAdmin extends SmartContract {
     // Set permissions to prevent unauthorized updates
     this.account.permissions.set({
       ...Permissions.default(),
-      setVerificationKey:
-        Permissions.VerificationKey.impossibleDuringCurrentVersion(),
-      setPermissions: Permissions.impossible(),
     });
 
     this.admin.set(args.adminPublicKey);
@@ -39,8 +37,17 @@ export class ZkUsdProtocolAdmin extends SmartContract {
     return AccountUpdate.createSigned(admin);
   }
 
+  //We should be able to update this protocol admin contract
+  @method
+  async updateVerificationKey(vk: VerificationKey) {
+    await this.ensureAdminSignature();
+    this.account.verificationKey.set(vk);
+  }
+
   @method.returns(Bool)
-  public async canUpdateVerificationKey(_accountUpdate: AccountUpdate) {
+  public async canUpdateProtocolVaultVerificationKey(
+    _accountUpdate: AccountUpdate
+  ) {
     await this.ensureAdminSignature();
     return Bool(true);
   }
@@ -65,6 +72,12 @@ export class ZkUsdProtocolAdmin extends SmartContract {
 
   @method.returns(Bool)
   public async canUpdateFallbackPrice(_accountUpdate: AccountUpdate) {
+    await this.ensureAdminSignature();
+    return Bool(true);
+  }
+
+  @method.returns(Bool)
+  public async canSetOracleFee(_accountUpdate: AccountUpdate) {
     await this.ensureAdminSignature();
     return Bool(true);
   }
