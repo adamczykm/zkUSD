@@ -14,7 +14,10 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
 
   beforeEach(async () => {
     //reset the whitelist
-    testHelper.whitelist = whitelist;
+    testHelper.whitelist = {
+      ...whitelist,
+      addresses: [...whitelist.addresses],
+    };
   });
 
   it('should allow the whitelist to be updated with the admin key', async () => {
@@ -81,7 +84,9 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.priceFeedOracle.contract.updateWhitelist(whitelist);
+          await testHelper.priceFeedOracle.contract.updateWhitelist(
+            testHelper.whitelist
+          );
         },
         {
           extraSigners: [testHelper.protocolAdmin.privateKey],

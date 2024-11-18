@@ -19,6 +19,13 @@ import {
 } from 'o1js';
 import { ZkUsdProtocolAdmin } from './zkusd-protocol-admin';
 
+export const ZkUsdPriceFeedOracleErrors = {
+  SENDER_NOT_WHITELISTED: 'Sender not in the whitelist',
+  INVALID_WHITELIST: 'Invalid whitelist',
+  PENDING_ACTION_EXISTS: 'Address already has a pending action',
+  AMOUNT_ZERO: 'Amount must be greater than zero',
+};
+
 export class PriceFeedAction extends Struct({
   address: PublicKey,
   price: UInt64,
@@ -134,12 +141,19 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   // Validation helpers
   private validateWhitelist(submitter: PublicKey, whitelist: Whitelist) {
     const whitelistHash = this.whitelistHash.getAndRequireEquals();
-    whitelistHash.assertEquals(Poseidon.hash(Whitelist.toFields(whitelist)));
-
-    const isInWhitelist = whitelist.addresses.some((address) =>
-      address.equals(submitter)
+    whitelistHash.assertEquals(
+      Poseidon.hash(Whitelist.toFields(whitelist)),
+      ZkUsdPriceFeedOracleErrors.INVALID_WHITELIST
     );
-    Bool(isInWhitelist).assertTrue('Sender not in the whitelist');
+
+    let isWhitelisted = Bool(false);
+    for (let i = 0; i < whitelist.addresses.length; i++) {
+      isWhitelisted = isWhitelisted.or(
+        submitter.equals(whitelist.addresses[i])
+      );
+    }
+
+    isWhitelisted.assertTrue(ZkUsdPriceFeedOracleErrors.SENDER_NOT_WHITELISTED);
   }
 
   private async validatePendingActions(submitter: PublicKey): Promise<void> {
@@ -158,7 +172,9 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
       { skipActionStatePrecondition: true }
     );
 
-    hasPendingAction.assertFalse('Address already has a pending action');
+    hasPendingAction.assertFalse(
+      ZkUsdPriceFeedOracleErrors.PENDING_ACTION_EXISTS
+    );
   }
 
   @method async updateWhitelist(whitelist: Whitelist) {
@@ -175,6 +191,11 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   }
 
   @method async updateFallbackPrice(price: UInt64) {
+    //Ensure price is greater than zero
+    price
+      .greaterThan(UInt64.zero)
+      .assertTrue(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
+
     const { isOddBlock } = this.getBlockInfo();
 
     const currentPrices = this.getAndRequireCurrentFallbackPrices();
@@ -197,6 +218,11 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
 
   @method async submitPrice(price: UInt64, whitelist: Whitelist) {
     const submitter = this.sender.getAndRequireSignatureV2();
+
+    //Ensure price is greater than zero
+    price
+      .greaterThan(UInt64.zero)
+      .assertTrue(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
 
     this.validateWhitelist(submitter, whitelist);
     await this.validatePendingActions(submitter);
