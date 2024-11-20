@@ -10,12 +10,10 @@ import {
   UInt64,
   Experimental,
 } from 'o1js';
-import { ZkUsdTokenAdmin } from '../zkusd-token-admin';
+import { ZkUsdToken } from '../zkusd-token';
 import { ZkUsdVault } from '../zkusd-vault';
-import { ZkUsdProtocolVault } from '../zkusd-protocol-vault';
-import { FungibleToken } from 'mina-fungible-token';
-import { ZkUsdProtocolAdmin } from '../zkusd-protocol-admin';
-import { Whitelist, ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle';
+import { ZkUsdProtocolVault, OracleWhitelist } from '../zkusd-protocol-vault';
+import { ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -49,9 +47,11 @@ export class TestAmounts {
 
   // zkUSD amounts
   static DEBT_100_ZKUSD = UInt64.from(100e9); // 100 zkUSD
+  static DEBT_50_ZKUSD = UInt64.from(50e9); // 50 zkUSD
   static DEBT_30_ZKUSD = UInt64.from(30e9); // 30 zkUSD
   static DEBT_5_ZKUSD = UInt64.from(5e9); // 5 zkUSD
   static DEBT_1_ZKUSD = UInt64.from(1e9); // 1 zkUSD
+  static DEBT_50_CENT_ZKUSD = UInt64.from(5e8); // 0.5 zkUSD
   static DEBT_10_CENT_ZKUSD = UInt64.from(1e8); // 0.1 zkUSD
 
   // Price amounts
@@ -70,12 +70,14 @@ export class TestAmounts {
 export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
-  token: ContractInstance<FungibleToken>;
-  tokenAdmin: ContractInstance<ZkUsdTokenAdmin>;
+  token: ContractInstance<ZkUsdToken>;
   protocolVault: ContractInstance<ZkUsdProtocolVault>;
-  protocolAdmin: ContractInstance<ZkUsdProtocolAdmin>;
+  protocolAdmin: {
+    privateKey: PrivateKey;
+    publicKey: PublicKey;
+  };
   priceFeedOracle: ContractInstance<ZkUsdPriceFeedOracle>;
-  whitelist: Whitelist;
+  whitelist: OracleWhitelist;
   whitelistedOracles: Map<string, number> = new Map();
   currentAccountIndex: number = 0;
   Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
@@ -99,8 +101,9 @@ export class TestHelper {
     });
     Mina.setActiveInstance(this.Local);
     this.deployer = this.Local.testAccounts[this.currentAccountIndex];
+    this.protocolAdmin = PrivateKey.randomKeypair();
     this.currentAccountIndex++;
-    this.whitelist = new Whitelist({
+    this.whitelist = new OracleWhitelist({
       addresses: Array(ZkUsdPriceFeedOracle.MAX_PARTICIPANTS).fill(
         PublicKey.empty()
       ),
@@ -193,26 +196,13 @@ export class TestHelper {
   }
 
   async compileContracts() {
-    await ZkUsdTokenAdmin.compile();
+    await ZkUsdToken.compile();
     await ZkUsdVault.compile();
     await ZkUsdProtocolVault.compile();
-    await ZkUsdProtocolAdmin.compile();
     await ZkUsdPriceFeedOracle.compile();
-    await FungibleToken.compile();
   }
 
   async deployTokenContracts() {
-    FungibleToken.AdminContract = ZkUsdTokenAdmin;
-
-    const adminKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKFPts6KALweqsniSsnq3eCWRskWtMaZdBjoyJ8AZuX2yuZPbmEg'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qmrVkuYGu3NU4apAALjxcZVLGN5n2hdPSpfJghhHpjyjQbMWDtbM'
-      ),
-    };
-
     const tokenKeyPair = {
       privateKey: PrivateKey.fromBase58(
         'EKDveJ7bFB2SEFU52rgob94xa9NV5fVwarpDKGSQ6TPkmtb9MNd9'
@@ -231,15 +221,6 @@ export class TestHelper {
       ),
     };
 
-    const protocolAdminKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKEneAjqw8NC8MF6egyKM1DgfDhhfdkVUz2zC1U9F4JiETNZgwvj'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qkkJyWEXwHN9zZmqzfdf2ec794EL5Nyr8hbpvqRX4BwPyQcwKJy6'
-      ),
-    };
-
     const priceFeedOracleKeyPair = {
       privateKey: PrivateKey.fromBase58(
         'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
@@ -249,13 +230,8 @@ export class TestHelper {
       ),
     };
 
-    this.tokenAdmin = {
-      contract: new ZkUsdTokenAdmin(adminKeyPair.publicKey),
-      publicKey: adminKeyPair.publicKey,
-      privateKey: adminKeyPair.privateKey,
-    };
     this.token = {
-      contract: new FungibleToken(tokenKeyPair.publicKey),
+      contract: new ZkUsdToken(tokenKeyPair.publicKey),
       publicKey: tokenKeyPair.publicKey,
       privateKey: tokenKeyPair.privateKey,
     };
@@ -263,11 +239,6 @@ export class TestHelper {
       contract: new ZkUsdProtocolVault(protocolVaultKeyPair.publicKey),
       publicKey: protocolVaultKeyPair.publicKey,
       privateKey: protocolVaultKeyPair.privateKey,
-    };
-    this.protocolAdmin = {
-      contract: new ZkUsdProtocolAdmin(protocolAdminKeyPair.publicKey),
-      publicKey: protocolAdminKeyPair.publicKey,
-      privateKey: protocolAdminKeyPair.privateKey,
     };
     this.priceFeedOracle = {
       contract: new ZkUsdPriceFeedOracle(priceFeedOracleKeyPair.publicKey),
@@ -281,27 +252,35 @@ export class TestHelper {
       await this.compileContracts();
     }
 
+    //Create the protocol admin
+    await this.transaction(
+      this.deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(this.deployer, 1);
+        AccountUpdate.createSigned(this.protocolAdmin.publicKey);
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
+
     // Deploying zkUSD Token and Admin contracts
+
+    //Initial protocol fee is 50%
+    const FIFTY_PERCENT = UInt64.from(50);
 
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 6);
-        await this.tokenAdmin.contract.deploy({});
+        AccountUpdate.fundNewAccount(this.deployer, 4);
         await this.token.contract.deploy({
           symbol: 'zkUSD',
-          src: 'https://github.com/MinaFoundation/mina-fungible-token/blob/main/FungibleToken.ts',
+          src: 'TBD',
         });
-        await this.token.contract.initialize(
-          this.tokenAdmin.publicKey,
-          UInt8.from(9),
-          Bool(false)
-        );
+        await this.token.contract.initialize(UInt8.from(9));
         await this.protocolVault.contract.deploy({
-          protocolFee: UInt64.from(50), // Set it at a base fee of 50%
-        });
-        await this.protocolAdmin.contract.deploy({
           adminPublicKey: this.protocolAdmin.publicKey,
+          initialProtocolFee: FIFTY_PERCENT,
         });
         await this.priceFeedOracle.contract.deploy({
           initialPrice: TestAmounts.PRICE_1_USD,
@@ -310,10 +289,8 @@ export class TestHelper {
       },
       {
         extraSigners: [
-          this.tokenAdmin.privateKey,
           this.token.privateKey,
           this.protocolVault.privateKey,
-          this.protocolAdmin.privateKey,
           this.priceFeedOracle.privateKey,
         ],
       }
@@ -330,7 +307,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        await this.priceFeedOracle.contract.updateWhitelist(this.whitelist);
+        await this.protocolVault.contract.updateOracleWhitelist(this.whitelist);
       },
       {
         extraSigners: [this.protocolAdmin.privateKey],
@@ -405,6 +382,30 @@ export class TestHelper {
     //Move the blockchain forward
     this.Local.setBlockchainLength(
       this.Local.getNetworkState().blockchainLength.add(1)
+    );
+  }
+
+  async stopTheProtocol() {
+    await this.transaction(
+      this.deployer,
+      async () => {
+        await this.priceFeedOracle.contract.stopTheProtocol();
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
+  }
+
+  async resumeTheProtocol() {
+    await this.transaction(
+      this.deployer,
+      async () => {
+        await this.priceFeedOracle.contract.resumeTheProtocol();
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
     );
   }
 }

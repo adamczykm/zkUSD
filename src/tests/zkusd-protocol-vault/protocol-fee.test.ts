@@ -1,45 +1,53 @@
-import { AccountUpdate, Field, Mina, PrivateKey, UInt32 } from 'o1js';
+import { AccountUpdate, Field, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
-import {
-  Whitelist,
-  ZkUsdPriceFeedOracle,
-  ZkUsdPriceFeedOracleErrors,
-} from '../../zkusd-price-feed-oracle';
+import { ZkUsdPriceFeedOracleErrors } from '../../zkusd-price-feed-oracle';
 
-describe('zkUSD Price Feed Oracle Fee Test Suite', () => {
+describe('zkUSD Protocol Fee Test Suite', () => {
   const testHelper = new TestHelper();
 
   beforeAll(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
+    testHelper.createAgents(['alice', 'bob']);
   });
 
-  it('should allow the fee to be changed with the admin key', async () => {
-    const newFee = TestAmounts.COLLATERAL_2_MINA;
+  it('should allow changing the protocol fee with admin signature', async () => {
+    const newFee = UInt64.from(10); // change the fee
 
     await testHelper.transaction(
-      testHelper.deployer,
+      testHelper.agents.alice.account,
       async () => {
-        await testHelper.priceFeedOracle.contract.setOracleFee(newFee);
+        await testHelper.protocolVault.contract.setProtocolFee(newFee);
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
       }
     );
-
-    const fee = testHelper.priceFeedOracle.contract.oracleFee.get();
-    expect(fee).toEqual(newFee);
   });
 
-  it('should not allow the fee to be changed without the admin key', async () => {
-    const newFee = TestAmounts.COLLATERAL_1_MINA;
+  it('should not allow changing the protocol fee without admin signature', async () => {
+    const newFee = UInt64.from(10); // change the fee
 
     await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.priceFeedOracle.contract.setOracleFee(newFee);
+      testHelper.transaction(testHelper.agents.bob.account, async () => {
+        await testHelper.protocolVault.contract.setProtocolFee(newFee);
       })
     ).rejects.toThrow(/Transaction verification failed/i);
+  });
+
+  it('should fail updating the protocol fee if above 100', async () => {
+    const newFee = UInt64.from(101);
+    await expect(
+      testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.protocolVault.contract.setProtocolFee(newFee);
+        },
+        {
+          extraSigners: [testHelper.protocolAdmin.privateKey],
+        }
+      )
+    ).rejects.toThrow();
   });
 
   it('should not allow the private key to manually send funds from the oracle', async () => {
@@ -67,7 +75,7 @@ describe('zkUSD Price Feed Oracle Fee Test Suite', () => {
   });
 
   it('should pay out the oracle fee correctly', async () => {
-    const oracleFee = testHelper.priceFeedOracle.contract.oracleFee.get();
+    const oracleFee = await testHelper.protocolVault.contract.getOracleFee();
 
     //get the current balance of the price feed oracle
     const priceFeedOracleBalanceBefore = Mina.getBalance(

@@ -1,6 +1,7 @@
 import { AccountUpdate, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
-import { Whitelist, ZkUsdPriceFeedOracle } from '../../zkusd-price-feed-oracle';
+import { ZkUsdPriceFeedOracle } from '../../zkusd-price-feed-oracle';
+import { OracleWhitelist } from '../../zkusd-protocol-vault';
 
 describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
   const testHelper = new TestHelper();
@@ -23,18 +24,20 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     testHelper.Local.setBlockchainLength(UInt32.from(1));
     await testHelper.updateOraclePrice(TestAmounts.PRICE_50_CENT);
 
-    const evenPrice = testHelper.priceFeedOracle.contract.priceEvenBlock.get();
+    const evenPrice =
+      await testHelper.priceFeedOracle.contract.priceEvenBlock.fetch();
 
-    expect(evenPrice.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
+    expect(evenPrice?.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
   });
 
   it('should settle the odd price if we are on an even block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(2));
     await testHelper.updateOraclePrice(TestAmounts.PRICE_52_CENT);
 
-    const oddPrice = testHelper.priceFeedOracle.contract.priceOddBlock.get();
+    const oddPrice =
+      await testHelper.priceFeedOracle.contract.priceOddBlock.fetch();
 
-    expect(oddPrice.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
+    expect(oddPrice?.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
   });
 
   it('should use the fallback price if oracles havent submitted the price', async () => {
@@ -42,7 +45,8 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
       await testHelper.priceFeedOracle.contract.settlePriceUpdate();
     });
 
-    const actionState = testHelper.priceFeedOracle.contract.actionState.get();
+    const actionState =
+      await testHelper.priceFeedOracle.contract.actionState.fetch();
 
     const pendingActions = Mina.getActions(
       testHelper.priceFeedOracle.publicKey,
@@ -123,7 +127,7 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
           testHelper.whitelist
         );
       },
@@ -234,7 +238,7 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     }
 
     // Create new whitelist with max participants
-    const newWhitelist: Whitelist = {
+    const newWhitelist: OracleWhitelist = {
       addresses: mxOracles.map((oracle) => oracle.privateKey.toPublicKey()),
     };
 
@@ -242,7 +246,9 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(newWhitelist);
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
+          newWhitelist
+        );
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
@@ -270,7 +276,8 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
         .send();
     }
 
-    const actionState = testHelper.priceFeedOracle.contract.actionState.get();
+    const actionState =
+      await testHelper.priceFeedOracle.contract.actionState.fetch();
     const priceFeedActions = Mina.getActions(
       testHelper.priceFeedOracle.publicKey,
       {

@@ -16,13 +16,16 @@ import {
   Bool,
   AccountUpdate,
   UInt32,
+  assert,
 } from 'o1js';
-import { ZkUsdProtocolAdmin } from './zkusd-protocol-admin';
+import { OracleWhitelist, ZkUsdProtocolVault } from './zkusd-protocol-vault';
 
 export const ZkUsdPriceFeedOracleErrors = {
   SENDER_NOT_WHITELISTED: 'Sender not in the whitelist',
   INVALID_WHITELIST: 'Invalid whitelist',
   PENDING_ACTION_EXISTS: 'Address already has a pending action',
+  EMERGENCY_HALT:
+    'Oracle is in emergency mode - all protocol actions are suspended',
   AMOUNT_ZERO: 'Amount must be greater than zero',
 };
 
@@ -36,10 +39,6 @@ export class PriceState extends Struct({
   count: UInt64,
 }) {}
 
-export class Whitelist extends Struct({
-  addresses: Provable.Array(PublicKey, 10),
-}) {}
-
 export class ZkUsdPriceFeedOracle extends SmartContract {
   reducer = Reducer({ actionType: PriceFeedAction });
 
@@ -49,18 +48,23 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   @state(UInt64) fallbackPriceEvenBlock = State<UInt64>();
   @state(UInt64) fallbackPriceOddBlock = State<UInt64>();
   @state(Field) actionState = State<Field>();
-  @state(Field) whitelistHash = State<Field>();
-  @state(UInt64) oracleFee = State<UInt64>(); // Fee in Mina to pay to the oracle
+  @state(Bool) protocolEmergencyStop = State<Bool>(Bool(false)); // Flag to halt the protocol in case of emergency
+
+  static PROTOCOL_VAULT_ADDRESS = PublicKey.fromBase58(
+    'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
+  );
 
   static MAX_PARTICIPANTS = 10;
-  static ZKUSD_PROTOCOL_ADMIN_KEY = PublicKey.fromBase58(
-    'B62qkkJyWEXwHN9zZmqzfdf2ec794EL5Nyr8hbpvqRX4BwPyQcwKJy6'
-  );
-  static ZkUsdProtocolAdminContract = new ZkUsdProtocolAdmin(
-    ZkUsdPriceFeedOracle.ZKUSD_PROTOCOL_ADMIN_KEY
-  );
 
-  async deploy(args: DeployArgs & { initialPrice: UInt64; oracleFee: UInt64 }) {
+  static ZkUsdProtocolVaultContract: new (...args: any) => ZkUsdProtocolVault =
+    ZkUsdProtocolVault;
+
+  async deploy(
+    args: DeployArgs & {
+      initialPrice: UInt64;
+      oracleFee: UInt64;
+    }
+  ) {
     await super.deploy(args);
 
     this.account.permissions.set({
@@ -72,13 +76,17 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
       send: Permissions.proof(),
     });
 
-    this.whitelistHash.set(Field(0));
     this.actionState.set(Reducer.initialActionState);
     this.priceEvenBlock.set(args.initialPrice);
     this.priceOddBlock.set(args.initialPrice);
     this.fallbackPriceEvenBlock.set(args.initialPrice);
     this.fallbackPriceOddBlock.set(args.initialPrice);
-    this.oracleFee.set(args.oracleFee);
+  }
+
+  public async getProtocolVaultContract(): Promise<ZkUsdProtocolVault> {
+    return new ZkUsdPriceFeedOracle.ZkUsdProtocolVaultContract(
+      ZkUsdPriceFeedOracle.PROTOCOL_VAULT_ADDRESS
+    );
   }
 
   // Helper methods for block management
@@ -143,10 +151,15 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
   }
 
   // Validation helpers
-  private validateWhitelist(submitter: PublicKey, whitelist: Whitelist) {
-    const whitelistHash = this.whitelistHash.getAndRequireEquals();
+  private async validateWhitelist(
+    submitter: PublicKey,
+    whitelist: OracleWhitelist
+  ) {
+    const protocolVault = await this.getProtocolVaultContract();
+    const whitelistHash = await protocolVault.getOracleWhitelistHash();
+
     whitelistHash.assertEquals(
-      Poseidon.hash(Whitelist.toFields(whitelist)),
+      Poseidon.hash(OracleWhitelist.toFields(whitelist)),
       ZkUsdPriceFeedOracleErrors.INVALID_WHITELIST
     );
 
@@ -181,27 +194,18 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     );
   }
 
-  @method async setOracleFee(fee: UInt64) {
-    const canSetFee =
-      await ZkUsdPriceFeedOracle.ZkUsdProtocolAdminContract.canSetOracleFee(
-        this.self
-      );
-    canSetFee.assertTrue(); //TODO: Add message
-
-    this.oracleFee.set(fee);
+  @method async stopTheProtocol() {
+    const protocolVault = await this.getProtocolVaultContract();
+    const canStop = await protocolVault.canStopTheProtocol();
+    canStop.assertTrue();
+    this.protocolEmergencyStop.set(Bool(true));
   }
 
-  @method async updateWhitelist(whitelist: Whitelist) {
-    this.whitelistHash.getAndRequireEquals();
-
-    const canUpdateWhitelist =
-      await ZkUsdPriceFeedOracle.ZkUsdProtocolAdminContract.canUpdateWhitelist(
-        this.self
-      );
-    canUpdateWhitelist.assertTrue();
-
-    const updatedWhitelistHash = Poseidon.hash(Whitelist.toFields(whitelist));
-    this.whitelistHash.set(updatedWhitelistHash);
+  @method async resumeTheProtocol() {
+    const protocolVault = await this.getProtocolVaultContract();
+    const canResume = await protocolVault.canResumeTheProtocol();
+    canResume.assertTrue();
+    this.protocolEmergencyStop.set(Bool(false));
   }
 
   @method async updateFallbackPrice(price: UInt64) {
@@ -214,10 +218,10 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
 
     const currentPrices = this.getAndRequireCurrentFallbackPrices();
 
-    const canUpdateFallbackPrice =
-      await ZkUsdPriceFeedOracle.ZkUsdProtocolAdminContract.canUpdateFallbackPrice(
-        this.self
-      );
+    const protocolVault = await this.getProtocolVaultContract();
+    const canUpdateFallbackPrice = await protocolVault.canUpdateFallbackPrice(
+      this.self
+    );
     canUpdateFallbackPrice.assertTrue();
 
     const { evenPrice, oddPrice } = this.updateBlockPrices(
@@ -230,17 +234,18 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     this.fallbackPriceOddBlock.set(oddPrice);
   }
 
-  @method async submitPrice(price: UInt64, whitelist: Whitelist) {
+  @method async submitPrice(price: UInt64, whitelist: OracleWhitelist) {
     const submitter = this.sender.getAndRequireSignatureV2();
 
-    const oracleFee = this.oracleFee.getAndRequireEquals();
+    const protocolVault = await this.getProtocolVaultContract();
+    const oracleFee = await protocolVault.getOracleFee();
 
     //Ensure price is greater than zero
     price
       .greaterThan(UInt64.zero)
       .assertTrue(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
 
-    this.validateWhitelist(submitter, whitelist);
+    await this.validateWhitelist(submitter, whitelist);
     await this.validatePendingActions(submitter);
 
     const priceFeedAction = new PriceFeedAction({
@@ -331,7 +336,12 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     this.actionState.set(pendingActions.hash);
   }
 
-  async getPrice(): Promise<UInt64> {
+  @method.returns(UInt64)
+  async getPrice() {
+    const isProtocolHalted = this.protocolEmergencyStop.getAndRequireEquals();
+
+    isProtocolHalted.assertFalse(ZkUsdPriceFeedOracleErrors.EMERGENCY_HALT);
+
     const { isOddBlock } = this.getBlockInfo();
     const prices = this.getCurrentPrices();
 
@@ -341,7 +351,8 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     return Provable.if(isOddBlock, prices.odd, prices.even);
   }
 
-  async getFallbackPrice(): Promise<UInt64> {
+  @method.returns(UInt64)
+  async getFallbackPrice() {
     const { isOddBlock } = this.getBlockInfo();
     const prices = this.getCurrentFallbackPrices();
 

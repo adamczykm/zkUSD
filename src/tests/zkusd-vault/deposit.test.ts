@@ -28,8 +28,9 @@ describe('zkUSD Vault Deposit Test Suite', () => {
 
     const aliceVault = testHelper.agents.alice.vault;
 
-    const collateralAmount = aliceVault?.contract.collateralAmount.get();
-    const debtAmount = aliceVault?.contract.debtAmount.get();
+    const collateralAmount =
+      await aliceVault?.contract.collateralAmount.fetch();
+    const debtAmount = await aliceVault?.contract.debtAmount.fetch();
 
     const aliceBalanceAfterDeposit = Mina.getBalance(
       testHelper.agents.alice.account
@@ -91,7 +92,8 @@ describe('zkUSD Vault Deposit Test Suite', () => {
   it('should allow bob to deposit if he has the correct secret', async () => {
     const aliceVault = testHelper.agents.alice.vault;
 
-    const initialCollateralAmount = aliceVault?.contract.collateralAmount.get();
+    const initialCollateralAmount =
+      await aliceVault?.contract.collateralAmount.fetch();
 
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       await testHelper.agents.alice.vault?.contract.depositCollateral(
@@ -100,8 +102,9 @@ describe('zkUSD Vault Deposit Test Suite', () => {
       );
     });
 
-    const collateralAmount = aliceVault?.contract.collateralAmount.get();
-    const debtAmount = aliceVault?.contract.debtAmount.get();
+    const collateralAmount =
+      await aliceVault?.contract.collateralAmount.fetch();
+    const debtAmount = await aliceVault?.contract.debtAmount.fetch();
 
     expect(collateralAmount).toEqual(
       initialCollateralAmount?.add(TestAmounts.COLLATERAL_100_MINA)
@@ -111,7 +114,7 @@ describe('zkUSD Vault Deposit Test Suite', () => {
 
   it('should track total deposits correctly across multiple transactions', async () => {
     const initialCollateral =
-      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+      await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
 
     // Make multiple deposits
     for (let i = 0; i < 3; i++) {
@@ -127,7 +130,7 @@ describe('zkUSD Vault Deposit Test Suite', () => {
     }
 
     const finalCollateral =
-      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+      await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
     expect(finalCollateral).toEqual(
       initialCollateral?.add(TestAmounts.COLLATERAL_1_MINA.mul(3))
     );
@@ -135,7 +138,7 @@ describe('zkUSD Vault Deposit Test Suite', () => {
 
   it('should allow deposits from multiple accounts to the same vault', async () => {
     const initialCollateral =
-      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+      await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
 
     for (const agent of Object.values(testHelper.agents)) {
       await testHelper.transaction(agent.account, async () => {
@@ -147,7 +150,7 @@ describe('zkUSD Vault Deposit Test Suite', () => {
     }
 
     const finalCollateral =
-      testHelper.agents.alice.vault?.contract.collateralAmount.get();
+      await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
     expect(finalCollateral).toEqual(
       initialCollateral?.add(
         TestAmounts.COLLATERAL_1_MINA.mul(Object.keys(testHelper.agents).length)

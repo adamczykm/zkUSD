@@ -30,8 +30,9 @@ describe('zkUSD Deployment Test Suite', () => {
   it('should deploy vault with empty state', async () => {
     const aliceVault = testHelper.agents.alice.vault;
 
-    const collateralAmount = aliceVault?.contract.collateralAmount.get();
-    const debtAmount = aliceVault?.contract.debtAmount.get();
+    const collateralAmount =
+      await aliceVault?.contract.collateralAmount.fetch();
+    const debtAmount = await aliceVault?.contract.debtAmount.fetch();
 
     expect(collateralAmount).toEqual(TestAmounts.ZERO);
     expect(debtAmount).toEqual(TestAmounts.ZERO);

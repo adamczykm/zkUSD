@@ -1,10 +1,10 @@
 import { Field, Poseidon, PrivateKey, PublicKey } from 'o1js';
 import { TestHelper } from '../test-helper';
-import { Whitelist } from '../../zkusd-price-feed-oracle';
+import { OracleWhitelist } from '../../zkusd-protocol-vault';
 
-describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
+describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
   const testHelper = new TestHelper();
-  let whitelist: Whitelist;
+  let whitelist: OracleWhitelist;
 
   beforeAll(async () => {
     await testHelper.initChain();
@@ -30,18 +30,22 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(whitelist);
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
+          whitelist
+        );
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
       }
     );
 
-    const expectedWhitelistHash = Poseidon.hash(Whitelist.toFields(whitelist));
-
-    expect(testHelper.priceFeedOracle.contract.whitelistHash.get()).toEqual(
-      expectedWhitelistHash
+    const expectedWhitelistHash = Poseidon.hash(
+      OracleWhitelist.toFields(whitelist)
     );
+
+    expect(
+      await testHelper.protocolVault.contract.getOracleWhitelistHash()
+    ).toEqual(expectedWhitelistHash);
   });
 
   it('should not allow updating the whitelist without the admin key', async () => {
@@ -53,7 +57,9 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
 
     await expect(
       testHelper.transaction(testHelper.deployer, async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(whitelist);
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
+          whitelist
+        );
       })
     ).rejects.toThrow(/Transaction verification failed/i);
   });
@@ -69,7 +75,9 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.priceFeedOracle.contract.updateWhitelist(whitelist);
+          await testHelper.protocolVault.contract.updateOracleWhitelist(
+            whitelist
+          );
         },
         {
           extraSigners: [testHelper.protocolAdmin.privateKey],
@@ -84,7 +92,7 @@ describe('zkUSD Price Feed Oracle Whitelist Test Suite', () => {
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.priceFeedOracle.contract.updateWhitelist(
+          await testHelper.protocolVault.contract.updateOracleWhitelist(
             testHelper.whitelist
           );
         },

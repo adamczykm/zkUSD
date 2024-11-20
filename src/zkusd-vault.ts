@@ -1,4 +1,3 @@
-import { FungibleToken } from 'mina-fungible-token';
 import {
   DeployArgs,
   PublicKey,
@@ -17,8 +16,10 @@ import {
   Struct,
   UInt32,
 } from 'o1js';
-import { ZkUsdProtocolVault } from './zkusd-protocol-vault';
+
 import { ZkUsdPriceFeedOracle } from './zkusd-price-feed-oracle';
+import { ZkUsdToken } from './zkusd-token';
+import { ZkUsdProtocolVault } from './zkusd-protocol-vault';
 
 export const ZkUsdVaultErrors = {
   AMOUNT_ZERO: 'Transaction amount must be greater than zero',
@@ -69,13 +70,6 @@ export class MintZkUsdEvent extends Struct({
   vaultDebtAmount: UInt64,
 }) {}
 
-export class WithdrawZkUsdEvent extends Struct({
-  vaultAddress: PublicKey,
-  amountWithdrawn: UInt64,
-  vaultCollateralAmount: UInt64,
-  vaultDebtAmount: UInt64,
-}) {}
-
 export class BurnZkUsdEvent extends Struct({
   vaultAddress: PublicKey,
   amountBurned: UInt64,
@@ -96,7 +90,7 @@ export class ZkUsdVault extends SmartContract {
   @state(UInt64) debtAmount = State<UInt64>();
   @state(Field) ownershipHash = State<Field>();
   @state(PublicKey) oraclePublicKey = State<PublicKey>();
-  @state(Bool) mintFlag = State<Bool>(Bool(false));
+  @state(Bool) interactionFlag = State<Bool>(Bool(false));
 
   static COLLATERAL_RATIO = Field.from(150);
   static COLLATERAL_RATIO_PRECISION = Field.from(100);
@@ -113,12 +107,14 @@ export class ZkUsdVault extends SmartContract {
     'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
   );
 
+  static ZkUsdProtocolVaultContract: new (...args: any) => ZkUsdProtocolVault =
+    ZkUsdProtocolVault;
+
   readonly events = {
     NewVault: NewVaultEvent,
     DepositCollateral: DepositCollateralEvent,
     RedeemCollateral: RedeemCollateralEvent,
     MintZkUsd: MintZkUsdEvent,
-    WithdrawZkUsd: WithdrawZkUsdEvent,
     BurnZkUsd: BurnZkUsdEvent,
     Liquidate: LiquidateEvent,
   };
@@ -237,7 +233,7 @@ export class ZkUsdVault extends SmartContract {
     const stakingRewards = balance.sub(collateralAmount);
 
     //Get the protocol fee from the protocol vault
-    const currentProtocolFee = protocolVault.protocolFee.getAndRequireEquals();
+    const currentProtocolFee = await protocolVault.getProtocolFee();
 
     //Calculate the protocol fee from the staking rewards
     const protocolFee = stakingRewards
@@ -277,7 +273,7 @@ export class ZkUsdVault extends SmartContract {
     );
   }
 
-  @method async mintZkUsd(amount: UInt64, secret: Field) {
+  @method async mintZkUsd(recipient: PublicKey, amount: UInt64, secret: Field) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
@@ -288,7 +284,7 @@ export class ZkUsdVault extends SmartContract {
     const price = await oracle.getPrice();
 
     //Assert the sender has the secret
-    const zkUSD = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
 
     //Assert the amount is greater than 0
     amount.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.AMOUNT_ZERO);
@@ -312,14 +308,14 @@ export class ZkUsdVault extends SmartContract {
       ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
     );
 
-    //Mint the zkUSD
-    await zkUSD.mint(this.address, amount);
+    //Mint the zkUSD for the recipient
+    await zkUSD.mint(recipient, amount, this.self);
 
     //Update the debt amount
     this.debtAmount.set(debtAmount.add(amount));
 
     //Set the interaction flag
-    this.mintFlag.set(Bool(true));
+    this.interactionFlag.set(Bool(true));
 
     //Emit the MintZkUsd event
     this.emitEvent(
@@ -333,56 +329,13 @@ export class ZkUsdVault extends SmartContract {
     );
   }
 
-  @method async withdrawZkUsd(amount: UInt64, secret: Field) {
-    //Preconditions
-    let collateralAmount = this.collateralAmount.getAndRequireEquals();
-    let debtAmount = this.debtAmount.getAndRequireEquals();
-    let ownershipHash = this.ownershipHash.getAndRequireEquals();
-
-    //Get the zkUSD token
-    const zkUsd = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
-
-    //Assert the amount is greater than 0
-    amount.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.AMOUNT_ZERO);
-
-    //Assert the ownership secret is correct
-    ownershipHash.assertEquals(
-      Poseidon.hash(secret.toFields()),
-      ZkUsdVaultErrors.INVALID_SECRET
-    );
-
-    //Assert the withdrawal amount is less that the balance of zkUSD
-    amount.assertLessThanOrEqual(
-      await zkUsd.getBalanceOf(this.address),
-      ZkUsdVaultErrors.INSUFFICIENT_BALANCE
-    );
-
-    //Send the zkUSD to the sender
-    await zkUsd.transfer(
-      this.address,
-      this.sender.getAndRequireSignatureV2(),
-      amount
-    );
-
-    //Emit the WithdrawZkUsd event
-    this.emitEvent(
-      'WithdrawZkUsd',
-      new WithdrawZkUsdEvent({
-        vaultAddress: this.address,
-        amountWithdrawn: amount,
-        vaultCollateralAmount: collateralAmount,
-        vaultDebtAmount: debtAmount,
-      })
-    );
-  }
-
   @method async burnZkUsd(amount: UInt64, secret: Field) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
     let ownershipHash = this.ownershipHash.getAndRequireEquals();
     //Get the zkUSD token
-    const zkUsd = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
+    const zkUsd = new ZkUsdToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
 
     //Assert the amount is greater than 0
     amount.assertGreaterThan(UInt64.from(0), ZkUsdVaultErrors.AMOUNT_ZERO);
@@ -427,7 +380,7 @@ export class ZkUsdVault extends SmartContract {
     const price = await oracle.getPrice();
 
     //Get the zkUSD token
-    const zkUSD = new FungibleToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdToken(ZkUsdVault.ZKUSD_TOKEN_ADDRESS);
 
     //Calculate the health factor
     const healthFactor = this.calculateHealthFactor(
@@ -486,27 +439,9 @@ export class ZkUsdVault extends SmartContract {
   // This flag is set so the zkUSD Admin contract can check its permissions
   @method.returns(Bool)
   public async assertInteractionFlag() {
-    this.mintFlag.requireEquals(Bool(true));
-    this.mintFlag.set(Bool(false));
+    this.interactionFlag.requireEquals(Bool(true));
+    this.interactionFlag.set(Bool(false));
     return Bool(true);
-  }
-
-  private verifyOraclePayload(oraclePayload: OraclePayload) {
-    const validSignature = oraclePayload.signature.verify(
-      ZkUsdVault.ORACLE_PUBLIC_KEY,
-      [
-        ...oraclePayload.price.toFields(),
-        ...oraclePayload.blockchainLength.toFields(),
-      ]
-    );
-
-    //Assert the signature is valid
-    validSignature.assertTrue(ZkUsdVaultErrors.INVALID_ORACLE_SIG);
-
-    //Assert the blockchain length is the same
-    let length = this.network.blockchainLength.getAndRequireEquals();
-
-    oraclePayload.blockchainLength.assertEquals(length);
   }
 
   private calculateUsdValue(amount: UInt64, price: UInt64): Field {

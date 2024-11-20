@@ -1,15 +1,15 @@
 import { AccountUpdate, Field, Mina, PrivateKey, UInt32 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
 import {
-  Whitelist,
   ZkUsdPriceFeedOracle,
   ZkUsdPriceFeedOracleErrors,
 } from '../../zkusd-price-feed-oracle';
+import { OracleWhitelist } from '../../zkusd-protocol-vault';
 
 describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   const testHelper = new TestHelper();
 
-  let whitelist: Whitelist;
+  let whitelist: OracleWhitelist;
   let whitelistedOracles: Map<string, number>;
   beforeAll(async () => {
     await testHelper.initChain();
@@ -30,7 +30,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     await testHelper.transaction(
       testHelper.agents.alice.account,
       async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
           testHelper.whitelist
         );
       },
@@ -57,6 +57,9 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
           TestAmounts.PRICE_25_CENT,
           testHelper.whitelist
         );
+      },
+      {
+        printTx: true,
       }
     );
 
@@ -160,7 +163,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const priceFeedActions = Mina.getActions(
       testHelper.priceFeedOracle.publicKey,
       {
-        fromActionState: testHelper.priceFeedOracle.contract.actionState.get(),
+        fromActionState:
+          await testHelper.priceFeedOracle.contract.actionState.fetch(),
       }
     );
 
@@ -199,7 +203,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       }
     );
 
-    const actionState = testHelper.priceFeedOracle.contract.actionState.get();
+    const actionState =
+      await testHelper.priceFeedOracle.contract.actionState.fetch();
     const priceFeedActions = Mina.getActions(
       testHelper.priceFeedOracle.publicKey,
       {
@@ -235,7 +240,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     }
 
     //create the new whitelist
-    const newWhitelist: Whitelist = {
+    const newWhitelist: OracleWhitelist = {
       addresses: mxOracles.map((oracle) => oracle.privateKey.toPublicKey()),
     };
 
@@ -243,7 +248,9 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.priceFeedOracle.contract.updateWhitelist(newWhitelist);
+        await testHelper.protocolVault.contract.updateOracleWhitelist(
+          newWhitelist
+        );
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
@@ -268,7 +275,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         .send();
     }
 
-    const actionState = testHelper.priceFeedOracle.contract.actionState.get();
+    const actionState =
+      await testHelper.priceFeedOracle.contract.actionState.fetch();
 
     const priceFeedActions = Mina.getActions(
       testHelper.priceFeedOracle.publicKey,
@@ -336,9 +344,9 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const fallbackEvenPrice =
-      testHelper.priceFeedOracle.contract.fallbackPriceEvenBlock.get();
+      await testHelper.priceFeedOracle.contract.fallbackPriceEvenBlock.fetch();
 
-    expect(fallbackEvenPrice.toString()).toEqual(
+    expect(fallbackEvenPrice?.toString()).toEqual(
       TestAmounts.PRICE_25_CENT.toString()
     );
   });
@@ -357,9 +365,9 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const fallbackOddPrice =
-      testHelper.priceFeedOracle.contract.fallbackPriceOddBlock.get();
+      await testHelper.priceFeedOracle.contract.fallbackPriceOddBlock.fetch();
 
-    expect(fallbackOddPrice.toString()).toEqual(
+    expect(fallbackOddPrice?.toString()).toEqual(
       TestAmounts.PRICE_2_USD.toString()
     );
   });
@@ -371,22 +379,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       })
     ).rejects.toThrow(/Transaction verification failed/i);
-  });
-
-  it('should not allow the fallback price to be updated to 0', async () => {
-    await expect(
-      testHelper.transaction(
-        testHelper.deployer,
-        async () => {
-          await testHelper.priceFeedOracle.contract.updateFallbackPrice(
-            TestAmounts.ZERO
-          );
-        },
-        {
-          extraSigners: [testHelper.protocolAdmin.privateKey],
-        }
-      )
-    ).rejects.toThrow(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
   });
 
   it('should not allow the fallback price to be updated to 0', async () => {
