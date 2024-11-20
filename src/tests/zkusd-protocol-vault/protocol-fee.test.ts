@@ -17,7 +17,7 @@ describe('zkUSD Protocol Fee Test Suite', () => {
     await testHelper.transaction(
       testHelper.agents.alice.account,
       async () => {
-        await testHelper.protocolVault.contract.setProtocolFee(newFee);
+        await testHelper.protocolVault.contract.updateProtocolFee(newFee);
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
@@ -30,7 +30,7 @@ describe('zkUSD Protocol Fee Test Suite', () => {
 
     await expect(
       testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.protocolVault.contract.setProtocolFee(newFee);
+        await testHelper.protocolVault.contract.updateProtocolFee(newFee);
       })
     ).rejects.toThrow(/Transaction verification failed/i);
   });
@@ -41,7 +41,7 @@ describe('zkUSD Protocol Fee Test Suite', () => {
       testHelper.transaction(
         testHelper.agents.alice.account,
         async () => {
-          await testHelper.protocolVault.contract.setProtocolFee(newFee);
+          await testHelper.protocolVault.contract.updateProtocolFee(newFee);
         },
         {
           extraSigners: [testHelper.protocolAdmin.privateKey],

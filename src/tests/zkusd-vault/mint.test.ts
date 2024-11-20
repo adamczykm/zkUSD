@@ -16,8 +16,7 @@ import {
   UInt32,
   UInt64,
 } from 'o1js';
-import { OraclePayload, ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
-import { FungibleToken } from 'mina-fungible-token';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 import { ZkUsdPriceFeedOracleErrors } from '../../zkusd-price-feed-oracle';
 import { ZkUsdToken } from '../../zkusd-token';
 

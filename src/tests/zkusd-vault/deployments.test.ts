@@ -27,6 +27,18 @@ describe('zkUSD Deployment Test Suite', () => {
     expect(aliceVault).not.toBeNull();
   });
 
+  it('should fail to deploy the same vault twice', async () => {
+    await expect(
+      testHelper.transaction(testHelper.agents.alice.account, async () => {
+        await testHelper.agents.alice.vault?.contract.deploy({
+          secret: testHelper.agents.alice.secret,
+        });
+      })
+    ).rejects.toThrow(
+      /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i
+    );
+  });
+
   it('should deploy vault with empty state', async () => {
     const aliceVault = testHelper.agents.alice.vault;
 

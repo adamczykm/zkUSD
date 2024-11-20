@@ -17,7 +17,7 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.protocolVault.contract.setOracleFee(newFee);
+        await testHelper.protocolVault.contract.updateOracleFee(newFee);
       },
       {
         extraSigners: [testHelper.protocolAdmin.privateKey],
@@ -33,7 +33,7 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
 
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.protocolVault.contract.setOracleFee(newFee);
+        await testHelper.protocolVault.contract.updateOracleFee(newFee);
       })
     ).rejects.toThrow(/Transaction verification failed/i);
   });

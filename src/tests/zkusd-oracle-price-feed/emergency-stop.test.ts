@@ -25,9 +25,9 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     });
   });
 
-  beforeEach(async () => {
-    await testHelper.resumeTheProtocol();
-  });
+  // beforeEach(async () => {
+  //   await testHelper.resumeTheProtocol();
+  // });
 
   it('should allow the protocol to be stopped with the admin key', async () => {
     await testHelper.transaction(
@@ -43,6 +43,8 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     const emergencyStopFlag =
       await testHelper.priceFeedOracle.contract.protocolEmergencyStop.fetch();
     expect(emergencyStopFlag).toEqual(Bool(true));
+
+    await testHelper.resumeTheProtocol();
   });
 
   it('should not allow the protocol to be stopped without the admin key', async () => {
@@ -79,6 +81,8 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
         await testHelper.priceFeedOracle.contract.resumeTheProtocol();
       })
     ).rejects.toThrow(/Transaction verification failed/i);
+
+    await testHelper.resumeTheProtocol();
   });
 
   it('should not allow vault actions when the protocol is stopped', async () => {
@@ -94,6 +98,8 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
         );
       })
     ).rejects.toThrow(ZkUsdPriceFeedOracleErrors.EMERGENCY_HALT);
+
+    await testHelper.resumeTheProtocol();
   });
 
   it('should allow vault actions when the protocol is resumed', async () => {

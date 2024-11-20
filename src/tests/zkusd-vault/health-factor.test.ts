@@ -190,5 +190,23 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
       // $1.5 collateral / ($1 debt * 150%) = 1.00 = 100 (after scaling)
       expect(healthFactor?.toBigInt()).toBe(100n);
     });
+    it('should return the correct health factor for the vault', async () => {
+      const collateral =
+        await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
+      const debt =
+        await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
+      const price = await testHelper.priceFeedOracle.contract.getPrice();
+
+      const healthFactor =
+        await testHelper.agents.alice.vault?.contract.getHealthFactor();
+
+      const rawHealthFactor =
+        testHelper.agents.alice.vault?.contract.calculateHealthFactor(
+          collateral!,
+          debt!,
+          price
+        );
+      expect(healthFactor?.toBigInt()).toBe(rawHealthFactor?.toBigInt());
+    });
   });
 });
