@@ -77,7 +77,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.transaction(testHelper.agents.charlie.account, async () => {
         await testHelper.agents.alice.vault?.contract.liquidate();
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(/Overflow/i);
   });
 
   it('should fail liquidation if liquidator does not have receive permissions', async () => {

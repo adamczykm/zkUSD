@@ -1,4 +1,4 @@
-import { AccountUpdate, Field, Mina, PrivateKey, UInt32 } from 'o1js';
+import { AccountUpdate, Field, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
 import {
   ZkUsdPriceFeedOracle,
@@ -57,9 +57,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
           TestAmounts.PRICE_25_CENT,
           testHelper.whitelist
         );
-      },
-      {
-        printTx: true,
       }
     );
 
@@ -395,5 +392,102 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         }
       )
     ).rejects.toThrow(ZkUsdPriceFeedOracleErrors.AMOUNT_ZERO);
+  });
+
+  it('should pay out the oracle fee correctly', async () => {
+    const oracleFee = await testHelper.protocolVault.contract.getOracleFee();
+
+    //get the current balance of the price feed oracle
+    const priceFeedOracleBalanceBefore = Mina.getBalance(
+      testHelper.priceFeedOracle.publicKey
+    );
+    const whitelistedOracles = testHelper.whitelistedOracles;
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
+    const oracle = testHelper.agents[oracleName].account;
+
+    // Get oracle's initial balance
+    const oracleBalanceBefore = Mina.getBalance(oracle);
+
+    // Submit price from oracle
+    await testHelper.transaction(oracle, async () => {
+      await testHelper.priceFeedOracle.contract.submitPrice(
+        TestAmounts.PRICE_25_CENT,
+        testHelper.whitelist
+      );
+    });
+
+    // Get oracle's balance after submission
+    const oracleBalanceAfter = Mina.getBalance(oracle);
+
+    const priceFeedOracleBalanceAfter = Mina.getBalance(
+      testHelper.priceFeedOracle.publicKey
+    );
+
+    // Verify oracle received the fee
+    expect(oracleBalanceAfter.toString()).toBe(
+      oracleBalanceBefore.add(oracleFee).toString()
+    );
+
+    expect(
+      priceFeedOracleBalanceBefore.sub(priceFeedOracleBalanceAfter)
+    ).toEqual(oracleFee);
+  });
+
+  it('should still allow for prices to be submitted even if the oracle contract runs out of funds', async () => {
+    const oracleFee = await testHelper.protocolVault.contract.getOracleFee();
+
+    //get the current balance of the price feed oracle
+    const priceFeedOracleBalanceBefore = Mina.getBalance(
+      testHelper.priceFeedOracle.publicKey
+    );
+
+    //set the fee to the balance of the oracle to drain the funds
+    await testHelper.transaction(
+      testHelper.deployer,
+      async () => {
+        await testHelper.protocolVault.contract.updateOracleFee(
+          priceFeedOracleBalanceBefore
+        );
+      },
+      {
+        extraSigners: [testHelper.protocolAdmin.privateKey],
+      }
+    );
+
+    //submit a price
+
+    const whitelistedOracles = testHelper.whitelistedOracles;
+
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
+
+    await testHelper.transaction(
+      testHelper.agents[oracleName].account,
+      async () => {
+        await testHelper.priceFeedOracle.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          testHelper.whitelist
+        );
+      }
+    );
+
+    const newBalance = Mina.getBalance(testHelper.priceFeedOracle.publicKey);
+
+    expect(newBalance.toString()).toEqual(UInt64.zero.toString());
+
+    //Settle the price update
+    await testHelper.transaction(testHelper.deployer, async () => {
+      await testHelper.priceFeedOracle.contract.settlePriceUpdate();
+    });
+
+    //Submit a new price - this shouldnt fail
+    await testHelper.transaction(
+      testHelper.agents[oracleName].account,
+      async () => {
+        await testHelper.priceFeedOracle.contract.submitPrice(
+          TestAmounts.PRICE_50_CENT,
+          testHelper.whitelist
+        );
+      }
+    );
   });
 });

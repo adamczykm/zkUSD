@@ -49,6 +49,7 @@ export class TestAmounts {
   static DEBT_100_ZKUSD = UInt64.from(100e9); // 100 zkUSD
   static DEBT_50_ZKUSD = UInt64.from(50e9); // 50 zkUSD
   static DEBT_30_ZKUSD = UInt64.from(30e9); // 30 zkUSD
+  static DEBT_10_ZKUSD = UInt64.from(10e9); // 10 zkUSD
   static DEBT_5_ZKUSD = UInt64.from(5e9); // 5 zkUSD
   static DEBT_1_ZKUSD = UInt64.from(1e9); // 1 zkUSD
   static DEBT_50_CENT_ZKUSD = UInt64.from(5e8); // 0.5 zkUSD
@@ -281,10 +282,10 @@ export class TestHelper {
         await this.protocolVault.contract.deploy({
           adminPublicKey: this.protocolAdmin.publicKey,
           initialProtocolFee: FIFTY_PERCENT,
+          initialOracleFlatFee: TestAmounts.COLLATERAL_1_MINA,
         });
         await this.priceFeedOracle.contract.deploy({
           initialPrice: TestAmounts.PRICE_1_USD,
-          oracleFee: TestAmounts.COLLATERAL_1_MINA,
         });
       },
       {

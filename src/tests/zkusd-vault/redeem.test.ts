@@ -1,13 +1,6 @@
 import { TestHelper, TestAmounts } from '../test-helper';
-import {
-  AccountUpdate,
-  Field,
-  Mina,
-  PrivateKey,
-  Signature,
-  UInt64,
-} from 'o1js';
-import { OraclePayload, ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
+import { AccountUpdate, Field, Mina, UInt64 } from 'o1js';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 import { ZkUsdPriceFeedOracleErrors } from '../../zkusd-price-feed-oracle';
 
 describe('zkUSD Vault Redeem Test Suite', () => {
@@ -226,10 +219,7 @@ describe('zkUSD Vault Redeem Test Suite', () => {
   });
 
   it('should create the protocol vault account update if there are staking rewards', async () => {
-    const txResult = await redeemCollateral(
-      TestAmounts.COLLATERAL_1_MINA,
-      true
-    );
+    const txResult = await redeemCollateral(TestAmounts.COLLATERAL_1_MINA);
 
     // Check that no account update has a label containing 'ZkUsdProtocolVault'
     const hasProtocolVaultUpdate = txResult.transaction.accountUpdates.some(
