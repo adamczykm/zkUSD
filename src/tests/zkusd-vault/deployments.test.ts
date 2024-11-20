@@ -28,27 +28,24 @@ describe('zkUSD Deployment Test Suite', () => {
   });
 
   it('should deploy vault with empty state', async () => {
-    await testHelper.deployVaults(['alice']);
-
     const aliceVault = testHelper.agents.alice.vault;
 
-    const collateralAmount = aliceVault?.contract.collateralAmount.get();
-    const debtAmount = aliceVault?.contract.debtAmount.get();
+    const collateralAmount =
+      await aliceVault?.contract.collateralAmount.fetch();
+    const debtAmount = await aliceVault?.contract.debtAmount.fetch();
 
     expect(collateralAmount).toEqual(TestAmounts.ZERO);
     expect(debtAmount).toEqual(TestAmounts.ZERO);
   });
 
   it('should deploy multiple vaults', async () => {
-    await testHelper.deployVaults(['alice', 'bob', 'charlie', 'david', 'eve']);
+    await testHelper.deployVaults(['bob', 'charlie', 'david', 'eve']);
 
-    const aliceVault = testHelper.agents.alice.vault;
     const bobVault = testHelper.agents.bob.vault;
     const charlieVault = testHelper.agents.charlie.vault;
     const davidVault = testHelper.agents.david.vault;
     const eveVault = testHelper.agents.eve.vault;
 
-    expect(aliceVault).not.toBeNull();
     expect(bobVault).not.toBeNull();
     expect(charlieVault).not.toBeNull();
     expect(davidVault).not.toBeNull();

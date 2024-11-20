@@ -13,7 +13,7 @@ import {
   Experimental,
 } from 'o1js';
 import { ZkUsdVault } from '../zkusd-vault.js';
-import { ZkUsdAdmin } from '../zkusd-token-admin.js';
+import { ZkUsdTokenAdmin } from '../zkusd-token-admin.js';
 import { equal } from 'node:assert';
 import { Oracle } from '../oracle.js';
 import { FungibleToken } from 'mina-fungible-token';
@@ -33,7 +33,7 @@ const [deployer, alice, bob] = Local.testAccounts;
 const oracle = new Oracle(Local);
 
 // Set up FungibleToken AdminContract
-FungibleToken.AdminContract = ZkUsdAdmin;
+FungibleToken.AdminContract = ZkUsdTokenAdmin;
 
 // Create key pairs and contracts
 
@@ -73,7 +73,7 @@ const tokenKeyPair = {
   ),
 };
 
-const adminContract = new ZkUsdAdmin(adminKeyPair.publicKey);
+const adminContract = new ZkUsdTokenAdmin(adminKeyPair.publicKey);
 const tokenContract = new FungibleToken(tokenKeyPair.publicKey);
 const aliceCDPContract = new ZkUsdVault(aliceCDPKeyPair.publicKey);
 const bobCDPContract = new ZkUsdVault(bobCDPKeyPair.publicKey);
@@ -84,7 +84,7 @@ const bobSecret = Field.random();
 if (useProof) {
   //compile the contracts
   await ZkUsdVault.compile();
-  await ZkUsdAdmin.compile();
+  await ZkUsdTokenAdmin.compile();
   await FungibleToken.compile();
 }
 

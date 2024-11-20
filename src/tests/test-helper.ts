@@ -8,17 +8,18 @@ import {
   Bool,
   Field,
   UInt64,
+  Experimental,
 } from 'o1js';
-import { ZkUsdAdmin } from '../zkusd-token-admin';
+import { ZkUsdToken } from '../zkusd-token';
 import { ZkUsdVault } from '../zkusd-vault';
-import { ZkUsdProtocolVault } from '../zkusd-protocol-vault';
-import { FungibleToken } from 'mina-fungible-token';
-import { Oracle } from '../oracle';
+import { ZkUsdProtocolVault, OracleWhitelist } from '../zkusd-protocol-vault';
+import { ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle';
 
 interface TransactionOptions {
   printTx?: boolean;
   extraSigners?: PrivateKey[];
   fee?: number;
+  printAccountUpdates?: boolean;
 }
 
 interface ContractInstance<T extends SmartContract> {
@@ -38,28 +39,48 @@ export class TestAmounts {
   static ZERO = UInt64.from(0);
 
   // Collateral amounts
-  static EXTRA_LARGE_COLLATERAL = UInt64.from(900e9); // 900 Mina
-  static LARGE_COLLATERAL = UInt64.from(100e9); // 100 Mina
-  static MEDIUM_COLLATERAL = UInt64.from(50e9); // 50 Mina
-  static SMALL_COLLATERAL = UInt64.from(1e9); // 1 Mina
+  static COLLATERAL_900_MINA = UInt64.from(900e9); // 900 Mina
+  static COLLATERAL_100_MINA = UInt64.from(100e9); // 100 Mina
+  static COLLATERAL_50_MINA = UInt64.from(50e9); // 50 Mina
+  static COLLATERAL_2_MINA = UInt64.from(2e9); // 2 Mina
+  static COLLATERAL_1_MINA = UInt64.from(1e9); // 1 Mina
 
   // zkUSD amounts
-  static EXTRA_LARGE_ZKUSD = UInt64.from(100e9); // 100 zkUSD
-  static LARGE_ZKUSD = UInt64.from(30e9); // 30 zkUSD
-  static MEDIUM_ZKUSD = UInt64.from(5e9); // 5 zkUSD
-  static SMALL_ZKUSD = UInt64.from(1e9); // 1 zkUSD
-  static TINY_ZKUSD = UInt64.from(1e8); // 0.1 zkUSD
+  static DEBT_100_ZKUSD = UInt64.from(100e9); // 100 zkUSD
+  static DEBT_50_ZKUSD = UInt64.from(50e9); // 50 zkUSD
+  static DEBT_30_ZKUSD = UInt64.from(30e9); // 30 zkUSD
+  static DEBT_5_ZKUSD = UInt64.from(5e9); // 5 zkUSD
+  static DEBT_1_ZKUSD = UInt64.from(1e9); // 1 zkUSD
+  static DEBT_50_CENT_ZKUSD = UInt64.from(5e8); // 0.5 zkUSD
+  static DEBT_10_CENT_ZKUSD = UInt64.from(1e8); // 0.1 zkUSD
+
+  // Price amounts
+  static PRICE_0_USD = UInt64.from(0); // 0 USD
+  static PRICE_25_CENT = UInt64.from(0.25e9); // 0.25 USD
+  static PRICE_48_CENT = UInt64.from(0.48e9); // 0.48 USD
+  static PRICE_49_CENT = UInt64.from(0.49e9); // 0.49 USD
+  static PRICE_50_CENT = UInt64.from(0.5e9); // 0.50 USD
+  static PRICE_51_CENT = UInt64.from(0.51e9); // 0.51 USD
+  static PRICE_52_CENT = UInt64.from(0.52e9); // 0.52 USD
+  static PRICE_1_USD = UInt64.from(1e9); // 1 USD
+  static PRICE_2_USD = UInt64.from(2e9); // 2 USD
+  static PRICE_10_USD = UInt64.from(1e10); // 10 USD
 }
 
 export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
-  token: ContractInstance<FungibleToken>;
-  admin: ContractInstance<ZkUsdAdmin>;
+  token: ContractInstance<ZkUsdToken>;
   protocolVault: ContractInstance<ZkUsdProtocolVault>;
+  protocolAdmin: {
+    privateKey: PrivateKey;
+    publicKey: PublicKey;
+  };
+  priceFeedOracle: ContractInstance<ZkUsdPriceFeedOracle>;
+  whitelist: OracleWhitelist;
+  whitelistedOracles: Map<string, number> = new Map();
   currentAccountIndex: number = 0;
   Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
-  oracle: Oracle;
 
   static proofsEnabled = false;
 
@@ -80,11 +101,20 @@ export class TestHelper {
     });
     Mina.setActiveInstance(this.Local);
     this.deployer = this.Local.testAccounts[this.currentAccountIndex];
+    this.protocolAdmin = PrivateKey.randomKeypair();
     this.currentAccountIndex++;
-    this.oracle = new Oracle(this.Local);
+    this.whitelist = new OracleWhitelist({
+      addresses: Array(ZkUsdPriceFeedOracle.MAX_PARTICIPANTS).fill(
+        PublicKey.empty()
+      ),
+    });
   }
 
   createAgents(names: string[]) {
+    if (this.currentAccountIndex >= 10) {
+      throw new Error('Max number of agents reached');
+    }
+
     names.forEach((name) => {
       this.agents[name] = {
         account: this.Local.testAccounts[this.currentAccountIndex],
@@ -99,7 +129,12 @@ export class TestHelper {
     callback: () => Promise<void>,
     options: TransactionOptions = {}
   ) {
-    const { printTx = false, extraSigners = [], fee } = options;
+    const {
+      printTx = false,
+      extraSigners = [],
+      fee,
+      printAccountUpdates = false,
+    } = options;
 
     const tx = await Mina.transaction(
       {
@@ -111,6 +146,41 @@ export class TestHelper {
 
     if (printTx) {
       console.log(tx.toPretty());
+    }
+
+    if (printAccountUpdates) {
+      const auCount: { publicKey: PublicKey; tokenId: Field; count: number }[] =
+        [];
+      let proofAuthorizationCount = 0;
+      for (const au of tx.transaction.accountUpdates) {
+        const { publicKey, tokenId, authorizationKind } = au.body;
+        if (au.authorization.proof) {
+          proofAuthorizationCount++;
+          if (authorizationKind.isProved.toBoolean() === false)
+            console.error('Proof authorization exists but isProved is false');
+        } else if (authorizationKind.isProved.toBoolean() === true)
+          console.error('isProved is true but no proof authorization');
+        const index = auCount.findIndex(
+          (item) =>
+            item.publicKey.equals(publicKey).toBoolean() &&
+            item.tokenId.equals(tokenId).toBoolean()
+        );
+        if (index === -1) auCount.push({ publicKey, tokenId, count: 1 });
+        else auCount[index].count++;
+      }
+      console.log(
+        `Account updates for tx: ${auCount.length}, proof authorizations: ${proofAuthorizationCount}`
+      );
+      for (const au of auCount) {
+        if (au.count > 1) {
+          console.log(
+            `DUPLICATE AU: ${au.publicKey.toBase58()} tokenId: ${au.tokenId.toString()} count: ${
+              au.count
+            }`
+          );
+        }
+      }
+      console.log(tx.transaction.accountUpdates);
     }
 
     await tx.prove();
@@ -126,23 +196,13 @@ export class TestHelper {
   }
 
   async compileContracts() {
-    await ZkUsdAdmin.compile();
+    await ZkUsdToken.compile();
     await ZkUsdVault.compile();
-    await FungibleToken.compile();
+    await ZkUsdProtocolVault.compile();
+    await ZkUsdPriceFeedOracle.compile();
   }
 
   async deployTokenContracts() {
-    FungibleToken.AdminContract = ZkUsdAdmin;
-
-    const adminKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKFPts6KALweqsniSsnq3eCWRskWtMaZdBjoyJ8AZuX2yuZPbmEg'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qmrVkuYGu3NU4apAALjxcZVLGN5n2hdPSpfJghhHpjyjQbMWDtbM'
-      ),
-    };
-
     const tokenKeyPair = {
       privateKey: PrivateKey.fromBase58(
         'EKDveJ7bFB2SEFU52rgob94xa9NV5fVwarpDKGSQ6TPkmtb9MNd9'
@@ -161,13 +221,17 @@ export class TestHelper {
       ),
     };
 
-    this.admin = {
-      contract: new ZkUsdAdmin(adminKeyPair.publicKey),
-      publicKey: adminKeyPair.publicKey,
-      privateKey: adminKeyPair.privateKey,
+    const priceFeedOracleKeyPair = {
+      privateKey: PrivateKey.fromBase58(
+        'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
+      ),
+      publicKey: PublicKey.fromBase58(
+        'B62qkwLvZ6e5NzRgQwkTaA9m88fTUZLHmpwvmCQEqbp5KcAAfqFAaf9'
+      ),
     };
+
     this.token = {
-      contract: new FungibleToken(tokenKeyPair.publicKey),
+      contract: new ZkUsdToken(tokenKeyPair.publicKey),
       publicKey: tokenKeyPair.publicKey,
       privateKey: tokenKeyPair.privateKey,
     };
@@ -176,37 +240,88 @@ export class TestHelper {
       publicKey: protocolVaultKeyPair.publicKey,
       privateKey: protocolVaultKeyPair.privateKey,
     };
+    this.priceFeedOracle = {
+      contract: new ZkUsdPriceFeedOracle(priceFeedOracleKeyPair.publicKey),
+      publicKey: priceFeedOracleKeyPair.publicKey,
+      privateKey: priceFeedOracleKeyPair.privateKey,
+    };
+
+    //Set the offchain state for the price feed oracle
 
     if (TestHelper.proofsEnabled) {
       await this.compileContracts();
     }
 
+    //Create the protocol admin
+    await this.transaction(
+      this.deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(this.deployer, 1);
+        AccountUpdate.createSigned(this.protocolAdmin.publicKey);
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
+
     // Deploying zkUSD Token and Admin contracts
+
+    //Initial protocol fee is 50%
+    const FIFTY_PERCENT = UInt64.from(50);
 
     await this.transaction(
       this.deployer,
       async () => {
         AccountUpdate.fundNewAccount(this.deployer, 4);
-        await this.admin.contract.deploy({});
         await this.token.contract.deploy({
           symbol: 'zkUSD',
-          src: 'https://github.com/MinaFoundation/mina-fungible-token/blob/main/FungibleToken.ts',
+          src: 'TBD',
         });
-        await this.token.contract.initialize(
-          this.admin.publicKey,
-          UInt8.from(9),
-          Bool(false)
-        );
-        await this.protocolVault.contract.deploy({});
+        await this.token.contract.initialize(UInt8.from(9));
+        await this.protocolVault.contract.deploy({
+          adminPublicKey: this.protocolAdmin.publicKey,
+          initialProtocolFee: FIFTY_PERCENT,
+        });
+        await this.priceFeedOracle.contract.deploy({
+          initialPrice: TestAmounts.PRICE_1_USD,
+          oracleFee: TestAmounts.COLLATERAL_1_MINA,
+        });
       },
       {
         extraSigners: [
-          this.admin.privateKey,
           this.token.privateKey,
           this.protocolVault.privateKey,
+          this.priceFeedOracle.privateKey,
         ],
       }
     );
+
+    //Lets also add a few trusted oracles to the whitelist
+    for (let i = 0; i < 3; i++) {
+      const oracleName = 'initialOracle' + i;
+      this.createAgents([oracleName]);
+      this.whitelist.addresses[i] = this.agents[oracleName].account;
+      this.whitelistedOracles.set(oracleName, i);
+    }
+
+    await this.transaction(
+      this.deployer,
+      async () => {
+        await this.protocolVault.contract.updateOracleWhitelist(this.whitelist);
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
+
+    //Transfer Mina to the price feed oracle to pay the oracle fee
+    await this.transaction(this.deployer, async () => {
+      let transfer = AccountUpdate.createSigned(this.deployer);
+      transfer.send({
+        to: this.priceFeedOracle.publicKey,
+        amount: TestAmounts.COLLATERAL_100_MINA,
+      });
+    });
   }
 
   async deployVaults(names: string[]) {
@@ -250,5 +365,47 @@ export class TestHelper {
         amount,
       });
     });
+  }
+
+  async updateOraclePrice(price: UInt64) {
+    // Use the map to iterate over whitelisted oracles
+    for (const [oracleName] of this.whitelistedOracles) {
+      await this.transaction(this.agents[oracleName].account, async () => {
+        await this.priceFeedOracle.contract.submitPrice(price, this.whitelist);
+      });
+    }
+
+    await this.transaction(this.deployer, async () => {
+      await this.priceFeedOracle.contract.settlePriceUpdate();
+    });
+
+    //Move the blockchain forward
+    this.Local.setBlockchainLength(
+      this.Local.getNetworkState().blockchainLength.add(1)
+    );
+  }
+
+  async stopTheProtocol() {
+    await this.transaction(
+      this.deployer,
+      async () => {
+        await this.priceFeedOracle.contract.stopTheProtocol();
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
+  }
+
+  async resumeTheProtocol() {
+    await this.transaction(
+      this.deployer,
+      async () => {
+        await this.priceFeedOracle.contract.resumeTheProtocol();
+      },
+      {
+        extraSigners: [this.protocolAdmin.privateKey],
+      }
+    );
   }
 }
