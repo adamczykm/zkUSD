@@ -130,7 +130,7 @@ _Credit to @rpanic for the idea._
 
 - **Concurrency Handling**: Since each vault is a separate zkApp, users can interact with their own vaults without affecting others. This eliminates concurrency issues inherent in single-contract architectures.
 - **Atomic Operations**: Account updates and state transitions are confined within individual vaults, ensuring atomicity.
-- **Interoperability**: zkUSD tokens minted from vaults adhere to the Mina Fungible Token standard, ensuring they are interoperable across the Mina ecosystem.
+- **Interoperability**: zkUSD tokens minted from vaults are standard tokens on the base layer, ensuring they are interoperable across the Mina ecosystem.
 - **Security**: Users have full control over their vaults, and liquidation logic can be securely implemented within each vault.
 
 **Analysis**:
@@ -148,7 +148,7 @@ Based on the analysis, the recommended architecture for zkUSD is to:
   - Each user deploys their own vault zkApp to manage their CDPs.
   - Vaults handle collateral management, minting/burning of zkUSD, and enforce protocol rules (e.g., maintaining collateralisation ratios).
 
-- **Utilise the Mina Fungible Token Standard for zkUSD Tokens**:
+- **Utilise a L1 token for zkUSD Tokens**:
 
   - Ensures that zkUSD tokens are interoperable across the Mina ecosystem.
   - Allows for seamless integration with other DeFi applications and protocols.
@@ -167,24 +167,6 @@ Based on the analysis, the recommended architecture for zkUSD is to:
   - Provide a UI to simplify vault deployment for end-users.
   - Optimise vault logic to minimise transaction costs and improve performance.
 
-## Future Considerations
-
-- **Staking Mechanism Exploration**:
-
-  - Investigate the feasibility of allowing users to stake locked MINA collateral to earn rewards.
-
-- **Price Oracle Integration**:
-
-  - Develop or integrate with a decentralised price oracle to provide reliable MINA/USD price feeds.
-
-- **Community Engagement**:
-
-  - Engage with the Mina developer community to refine the architecture and gather feedback.
-
-- **Security Audits**:
-  - Conduct thorough security audits of the vault contracts and overall protocol before mainnet deployment.
-
 ## References
 
 - Mina Protocol Documentation: [https://docs.minaprotocol.com/](https://docs.minaprotocol.com/)
-- Mina Fungible Token Standard: [https://github.com/MinaProtocol/mina-fungible-token](https://github.com/MinaFoundation/mina-fungible-token)

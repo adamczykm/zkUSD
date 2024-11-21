@@ -28,7 +28,7 @@ A decentralized price oracle system that:
 
 - Aggregates price submissions from whitelisted oracles
 - Calculates median prices
-- Handles price updates across even/odd blocks lagging pattern to ensure constient price updates while accounting for Mina's concurrency limitations
+- Handles price updates across even/odd blocks lagging pattern to ensure consistent price updates while accounting for Mina's concurrency limitations
 - Provides emergency halt functionality
 
 ### Individual User Vaults

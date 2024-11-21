@@ -580,6 +580,7 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     // then we are also going to be setting the action state in the settlePriceUpdate method which would invalidate the precondition.
     // can we guarentee that the settlePriceUpdate will be processed last?
     // If not, we might need to rethink this approach.
+    // For example: can we maintain different actions states for each block type - odd/even?
     const actionState = this.actionState.getAndRequireEquals();
 
     //Get the pending actions
