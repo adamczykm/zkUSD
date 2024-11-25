@@ -20,6 +20,7 @@ import {
   VerificationKey,
 } from 'o1js';
 import { ZkUsdVault } from './zkusd-vault';
+import { ZkUsdProtocolVault } from './zkusd-protocol-vault';
 
 /**
  * @title   zkUSD Token Contract
@@ -38,6 +39,7 @@ export const ZkUsdTokenErrors = {
   FLASH_MINTING:
     'Flash-minting or unbalanced transaction detected. Please make sure that your transaction is balanced, and that your `AccountUpdate`s are ordered properly, so that tokens are not received before they are sent.',
   UNBALANCED: 'Transaction is unbalanced',
+  INVALID_VAULT: 'Invalid vault',
 };
 
 // Events
@@ -56,6 +58,10 @@ export class BalanceChangeEvent extends Struct({
   amount: Int64,
 }) {}
 
+export class UpdatedVaultVerificationKeyHashEvent extends Struct({
+  vaultVerificationKeyHash: Field,
+}) {}
+
 /**
  * @notice  Props required for deploying the token contract
  * @param   symbol The token symbol
@@ -69,14 +75,25 @@ interface FungibleTokenDeployProps extends Exclude<DeployArgs, undefined> {
 export class ZkUsdToken extends TokenContractV2 {
   @state(UInt8)
   decimals = State<UInt8>();
+  @state(Field)
+  vaultVerificationKeyHash = State<Field>();
 
   readonly events = {
     Mint: MintEvent,
     Burn: BurnEvent,
     BalanceChange: BalanceChangeEvent,
+    UpdatedHash: UpdatedVaultVerificationKeyHashEvent,
   };
 
+  // We use the protocol vault address as a constant to avoid having to store it in the state - the vault address should never change
+  static PROTOCOL_VAULT_ADDRESS = PublicKey.fromBase58(
+    'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
+  );
+
   static ZkUsdVaultContract: new (...args: any) => ZkUsdVault = ZkUsdVault;
+
+  static ZkUsdProtocolVaultContract: new (...args: any) => ZkUsdProtocolVault =
+    ZkUsdProtocolVault;
 
   /**
    * @notice  Deploys the token contract and sets initial permissions
@@ -108,12 +125,14 @@ export class ZkUsdToken extends TokenContractV2 {
   /**
    * @notice  Initializes the token contract with decimal precision
    * @param   decimals The number of decimal places for the token
+   * @param   vaultVerificationKeyHash The verification key hash for the zkUSD vault
    */
   @method
-  async initialize(decimals: UInt8) {
+  async initialize(decimals: UInt8, vaultVerificationKeyHash: Field) {
     this.account.provedState.requireEquals(Bool(false));
 
     this.decimals.set(decimals);
+    this.vaultVerificationKeyHash.set(vaultVerificationKeyHash);
 
     const accountUpdate = AccountUpdate.createSigned(
       this.address,
@@ -127,8 +146,30 @@ export class ZkUsdToken extends TokenContractV2 {
   }
 
   /**
+   * @notice  Updates the vault verification key hash, this is used in the event the zkVault app changes
+   * @param   vaultVerificationKeyHash The new vault verification key hash
+   */
+  @method
+  async updateVaultVerificationKeyHash(vaultVerificationKeyHash: Field) {
+    // Check that the protocol vault allows us to update the vault verification key hash
+    const protocolVault = await this.getProtocolVaultContract();
+    const canUpdate = await protocolVault.canUpdateTheVaultVerificationKeyHash(
+      this.self
+    );
+    canUpdate.assertTrue();
+
+    // Update the vault verification key hash
+    this.vaultVerificationKeyHash.set(vaultVerificationKeyHash);
+
+    this.emitEvent(
+      'UpdatedHash',
+      new UpdatedVaultVerificationKeyHashEvent({ vaultVerificationKeyHash })
+    );
+  }
+
+  /**
    * @notice  Mints new tokens to a recipient
-   * @dev     IMPORTANT: Only vaults with valid proofs can mint tokens
+   * @dev     IMPORTANT: Only valid vaults with valid proofs can mint tokens (we use the verification key hash / interaction flag to check this)
    * @param   recipient The address receiving the minted tokens
    * @param   amount The amount of tokens to mint
    * @param   _accountUpdate The vault's account update for verification
@@ -140,11 +181,26 @@ export class ZkUsdToken extends TokenContractV2 {
     amount: UInt64,
     _accountUpdate: AccountUpdate
   ): Promise<AccountUpdate> {
+    // Preconditions
+    const verificationKeyHash =
+      this.vaultVerificationKeyHash.getAndRequireEquals();
+
     const zkUSDVault = new ZkUsdToken.ZkUsdVaultContract(
       _accountUpdate.publicKey
     );
+
     // Check that the vault has the interaction flag set, we should only ever allow minting from a vault that has generated a valid proof
     const canMint = await zkUSDVault.assertInteractionFlag();
+
+    const callingVerificationKeyHash =
+      zkUSDVault.self.body.authorizationKind.verificationKeyHash;
+
+    // Assert that the calling vault has the correct verification key hash so we are sure that the minting is coming from a valid vault
+    callingVerificationKeyHash.assertEquals(
+      verificationKeyHash,
+      ZkUsdTokenErrors.INVALID_VAULT
+    );
+
     canMint.assertTrue(ZkUsdTokenErrors.NO_PERMISSION_TO_MINT);
     const accountUpdate = this.internal.mint({ address: recipient, amount });
     recipient
@@ -283,5 +339,15 @@ export class ZkUsdToken extends TokenContractV2 {
   @method.returns(UInt8)
   async getDecimals(): Promise<UInt8> {
     return this.decimals.getAndRequireEquals();
+  }
+
+  /**
+   * @notice  Returns the protocol vault contract
+   * @returns The protocol vault contract
+   */
+  public async getProtocolVaultContract(): Promise<ZkUsdProtocolVault> {
+    return new ZkUsdToken.ZkUsdProtocolVaultContract(
+      ZkUsdToken.PROTOCOL_VAULT_ADDRESS
+    );
   }
 }

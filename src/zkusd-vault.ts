@@ -495,7 +495,7 @@ export class ZkUsdVault extends SmartContract {
   /**
    * @notice  This method is used to calculate the health factor of the vault.
    *          We calculate the health factor by dividing the maximum allowed debt by the debt amount.
-   *          The health factor is a normalised mesaure of the "healthyness" of the vault.
+   *          The health factor is a normalised mesaure of the "healthiness" of the vault.
    *
    *          A health factor > 100 is over collateralised
    *          A health factor < 100 is under collateralised and will be liquidated

@@ -18,7 +18,7 @@ import {
 } from 'o1js';
 import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
 import { ZkUsdPriceFeedOracleErrors } from '../../zkusd-price-feed-oracle';
-import { ZkUsdToken } from '../../zkusd-token';
+import { ZkUsdToken, ZkUsdTokenErrors } from '../../zkusd-token';
 
 class FakeZkUsdVault extends SmartContract {
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
@@ -274,7 +274,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
       testHelper.transaction(testHelper.agents.alice.account, async () => {
         await fakeVault.mint(UInt64.from(1000e9));
       })
-    ).rejects.toThrow(/Account_app_state_precondition_unsatisfied/i); // This should fail as the token admin should reject unauthorized mints
+    ).rejects.toThrow(ZkUsdTokenErrors.INVALID_VAULT); // This should fail as the token admin should reject unauthorized mints
   });
 
   it('Should fail if the price feed is in emergency mode', async () => {

@@ -14,6 +14,7 @@ import { ZkUsdToken } from '../zkusd-token';
 import { ZkUsdVault } from '../zkusd-vault';
 import { ZkUsdProtocolVault, OracleWhitelist } from '../zkusd-protocol-vault';
 import { ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle';
+import { Pickles } from 'o1js/dist/node/snarky';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -73,6 +74,7 @@ export class TestHelper {
   agents: Record<string, Agent> = {};
   token: ContractInstance<ZkUsdToken>;
   protocolVault: ContractInstance<ZkUsdProtocolVault>;
+  vaultVerificationKeyHash?: Field;
   protocolAdmin: {
     privateKey: PrivateKey;
     publicKey: PublicKey;
@@ -198,7 +200,10 @@ export class TestHelper {
 
   async compileContracts() {
     await ZkUsdToken.compile();
-    await ZkUsdVault.compile();
+
+    const vaultVerification = await ZkUsdVault.compile();
+    this.vaultVerificationKeyHash = vaultVerification.verificationKey.hash;
+
     await ZkUsdProtocolVault.compile();
     await ZkUsdPriceFeedOracle.compile();
   }
@@ -247,10 +252,11 @@ export class TestHelper {
       privateKey: priceFeedOracleKeyPair.privateKey,
     };
 
-    //Set the offchain state for the price feed oracle
-
     if (TestHelper.proofsEnabled) {
       await this.compileContracts();
+    } else {
+      const verification = await ZkUsdVault.compile();
+      this.vaultVerificationKeyHash = verification.verificationKey.hash;
     }
 
     //Create the protocol admin
@@ -278,7 +284,10 @@ export class TestHelper {
           symbol: 'zkUSD',
           src: 'TBD',
         });
-        await this.token.contract.initialize(UInt8.from(9));
+        await this.token.contract.initialize(
+          UInt8.from(9),
+          this.vaultVerificationKeyHash!
+        );
         await this.protocolVault.contract.deploy({
           adminPublicKey: this.protocolAdmin.publicKey,
           initialProtocolFee: FIFTY_PERCENT,

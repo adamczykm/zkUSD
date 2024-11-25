@@ -262,6 +262,19 @@ export class ZkUsdProtocolVault extends SmartContract {
   }
 
   /**
+   * @notice  Checks if the account update can update the vault verification key hash
+   * @param   _accountUpdate The account update to check
+   * @returns True if the account update can update the vault verification key hash
+   */
+  @method.returns(Bool)
+  public async canUpdateTheVaultVerificationKeyHash(
+    _accountUpdate: AccountUpdate
+  ) {
+    await this.ensureAdminSignature();
+    return Bool(true);
+  }
+
+  /**
    * @notice  Checks if the account update can update the fallback price
    * @param   _accountUpdate The account update to check
    * @returns True if the account update can update the fallback price

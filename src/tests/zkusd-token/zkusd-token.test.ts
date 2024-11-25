@@ -3,6 +3,7 @@ import {
   AccountUpdate,
   AccountUpdateForest,
   Bool,
+  Field,
   Int64,
   Mina,
   UInt64,
@@ -41,7 +42,10 @@ describe('zkUSD Token Test Suite', () => {
     it('should not allow re-initialization of token', async () => {
       await expect(
         testHelper.transaction(testHelper.deployer, async () => {
-          await testHelper.token.contract.initialize(UInt8.from(9));
+          await testHelper.token.contract.initialize(
+            UInt8.from(9),
+            testHelper.vaultVerificationKeyHash!
+          );
         })
       ).rejects.toThrow();
     });
