@@ -46,7 +46,7 @@ Key features:
 ### Clone
 
 ```sh
-git clone https://github.com/Charlie-Mack/zkUSD.git
+git clone https://github.com/zkUSD-Protocol/zkUSD
 
 cd zkUSD
 ```
