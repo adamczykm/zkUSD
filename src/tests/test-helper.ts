@@ -9,12 +9,12 @@ import {
   Field,
   UInt64,
   Experimental,
+  UInt32,
 } from 'o1js';
-import { ZkUsdToken } from '../zkusd-token';
-import { ZkUsdVault } from '../zkusd-vault';
-import { ZkUsdProtocolVault, OracleWhitelist } from '../zkusd-protocol-vault';
-import { ZkUsdPriceFeedOracle } from '../zkusd-price-feed-oracle';
-import { Pickles } from 'o1js/dist/node/snarky';
+import { OracleWhitelist, ProtocolData } from '../types';
+import { ZkUsdEngine, ZkUsdEngineDeployProps } from '../zkusd-engine';
+import { ZkUsdVault } from '../zkusd-vault-n';
+import { FungibleToken, FungibleTokenAdminBase } from 'mina-fungible-token';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -31,8 +31,11 @@ interface ContractInstance<T extends SmartContract> {
 
 interface Agent {
   account: Mina.TestPublicKey;
-  secret: Field;
-  vault?: ContractInstance<ZkUsdVault>;
+  vault?: {
+    contract: ZkUsdVault;
+    publicKey: PublicKey;
+    privateKey: PrivateKey;
+  };
 }
 
 export class TestAmounts {
@@ -72,14 +75,13 @@ export class TestAmounts {
 export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
-  token: ContractInstance<ZkUsdToken>;
-  protocolVault: ContractInstance<ZkUsdProtocolVault>;
+  token: ContractInstance<FungibleToken>;
+  engine: ContractInstance<ZkUsdEngine>;
   vaultVerificationKeyHash?: Field;
   protocolAdmin: {
     privateKey: PrivateKey;
     publicKey: PublicKey;
   };
-  priceFeedOracle: ContractInstance<ZkUsdPriceFeedOracle>;
   whitelist: OracleWhitelist;
   whitelistedOracles: Map<string, number> = new Map();
   currentAccountIndex: number = 0;
@@ -87,15 +89,8 @@ export class TestHelper {
 
   static proofsEnabled = false;
 
-  createContractInstance<T extends SmartContract>(
-    ContractClass: new (publicKey: PublicKey) => T
-  ): ContractInstance<T> {
-    const keyPair = PrivateKey.randomKeypair();
-    return {
-      contract: new ContractClass(keyPair.publicKey),
-      publicKey: keyPair.publicKey,
-      privateKey: keyPair.privateKey,
-    };
+  createVaultKeyPair(): { publicKey: PublicKey; privateKey: PrivateKey } {
+    return PrivateKey.randomKeypair();
   }
 
   async initChain() {
@@ -107,9 +102,7 @@ export class TestHelper {
     this.protocolAdmin = PrivateKey.randomKeypair();
     this.currentAccountIndex++;
     this.whitelist = new OracleWhitelist({
-      addresses: Array(ZkUsdPriceFeedOracle.MAX_PARTICIPANTS).fill(
-        PublicKey.empty()
-      ),
+      addresses: Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(PublicKey.empty()),
     });
   }
 
@@ -121,7 +114,6 @@ export class TestHelper {
     names.forEach((name) => {
       this.agents[name] = {
         account: this.Local.testAccounts[this.currentAccountIndex],
-        secret: Field.random(),
       };
       this.currentAccountIndex++;
     });
@@ -199,13 +191,8 @@ export class TestHelper {
   }
 
   async compileContracts() {
-    await ZkUsdToken.compile();
-
-    const vaultVerification = await ZkUsdVault.compile();
-    this.vaultVerificationKeyHash = vaultVerification.verificationKey.hash;
-
-    await ZkUsdProtocolVault.compile();
-    await ZkUsdPriceFeedOracle.compile();
+    await FungibleToken.compile();
+    await ZkUsdEngine.compile();
   }
 
   async deployTokenContracts() {
@@ -218,16 +205,7 @@ export class TestHelper {
       ),
     };
 
-    const protocolVaultKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKEV3QoVY8oUAuiuR8AvVkfS4BBNLz4zwuoS5FjXCjW2EZfDzssF'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qkJvkDUiw1c7kKn3PBa9YjNFiBgSA6nbXUJiVuSU128mKH4DiSih'
-      ),
-    };
-
-    const priceFeedOracleKeyPair = {
+    const engineKeyPair = {
       privateKey: PrivateKey.fromBase58(
         'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
       ),
@@ -236,28 +214,25 @@ export class TestHelper {
       ),
     };
 
+    FungibleToken.AdminContract = ZkUsdEngine;
+
     this.token = {
-      contract: new ZkUsdToken(tokenKeyPair.publicKey),
+      contract: new FungibleToken(tokenKeyPair.publicKey),
       publicKey: tokenKeyPair.publicKey,
       privateKey: tokenKeyPair.privateKey,
     };
-    this.protocolVault = {
-      contract: new ZkUsdProtocolVault(protocolVaultKeyPair.publicKey),
-      publicKey: protocolVaultKeyPair.publicKey,
-      privateKey: protocolVaultKeyPair.privateKey,
-    };
-    this.priceFeedOracle = {
-      contract: new ZkUsdPriceFeedOracle(priceFeedOracleKeyPair.publicKey),
-      publicKey: priceFeedOracleKeyPair.publicKey,
-      privateKey: priceFeedOracleKeyPair.privateKey,
+    this.engine = {
+      contract: new ZkUsdEngine(engineKeyPair.publicKey),
+      publicKey: engineKeyPair.publicKey,
+      privateKey: engineKeyPair.privateKey,
     };
 
     if (TestHelper.proofsEnabled) {
       await this.compileContracts();
-    } else {
-      const verification = await ZkUsdVault.compile();
-      this.vaultVerificationKeyHash = verification.verificationKey.hash;
     }
+
+    const verification = await ZkUsdVault.compile();
+    this.vaultVerificationKeyHash = verification.verificationKey.hash;
 
     //Create the protocol admin
     await this.transaction(
@@ -273,8 +248,18 @@ export class TestHelper {
 
     // Deploying zkUSD Token and Admin contracts
 
-    //Initial protocol fee is 50%
-    const FIFTY_PERCENT = UInt64.from(50);
+    //50% protocol fee
+    const FIFTY_PERCENT = UInt32.from(50);
+
+    //Create deploy props for the engine
+    const engineDeployProps: ZkUsdEngineDeployProps = {
+      initialPrice: TestAmounts.PRICE_1_USD,
+      admin: this.protocolAdmin.publicKey,
+      oracleFlatFee: TestAmounts.COLLATERAL_1_MINA,
+      protocolPercentageFee: FIFTY_PERCENT,
+      emergencyStop: Bool(false),
+      vaultVerificationKeyHash: this.vaultVerificationKeyHash!,
+    };
 
     await this.transaction(
       this.deployer,
@@ -285,24 +270,15 @@ export class TestHelper {
           src: 'TBD',
         });
         await this.token.contract.initialize(
+          this.engine.publicKey,
           UInt8.from(9),
-          this.vaultVerificationKeyHash!
+          Bool(false)
         );
-        await this.protocolVault.contract.deploy({
-          adminPublicKey: this.protocolAdmin.publicKey,
-          initialProtocolFee: FIFTY_PERCENT,
-          initialOracleFlatFee: TestAmounts.COLLATERAL_1_MINA,
-        });
-        await this.priceFeedOracle.contract.deploy({
-          initialPrice: TestAmounts.PRICE_1_USD,
-        });
+        await this.engine.contract.deploy(engineDeployProps);
+        await this.engine.contract.initialize();
       },
       {
-        extraSigners: [
-          this.token.privateKey,
-          this.protocolVault.privateKey,
-          this.priceFeedOracle.privateKey,
-        ],
+        extraSigners: [this.token.privateKey, this.engine.privateKey],
       }
     );
 
@@ -317,7 +293,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        await this.protocolVault.contract.updateOracleWhitelist(this.whitelist);
+        await this.engine.contract.updateOracleWhitelist(this.whitelist);
       },
       {
         extraSigners: [this.protocolAdmin.privateKey],
@@ -328,65 +304,61 @@ export class TestHelper {
     await this.transaction(this.deployer, async () => {
       let transfer = AccountUpdate.createSigned(this.deployer);
       transfer.send({
-        to: this.priceFeedOracle.publicKey,
+        to: this.engine.publicKey,
         amount: TestAmounts.COLLATERAL_100_MINA,
       });
     });
   }
 
-  async deployVaults(names: string[]) {
+  async createVaults(names: string[]) {
     for (const name of names) {
       if (!this.agents[name]) {
         throw new Error(`Agent ${name} not found`);
       }
 
-      this.agents[name].vault = this.createContractInstance(ZkUsdVault);
+      const vaultKeyPair = this.createVaultKeyPair();
+
+      console.log('Token Id of engine', this.engine.contract.deriveTokenId());
+
+      this.agents[name].vault = {
+        contract: new ZkUsdVault(
+          vaultKeyPair.publicKey,
+          this.engine.contract.deriveTokenId()
+        ),
+        publicKey: vaultKeyPair.publicKey,
+        privateKey: vaultKeyPair.privateKey,
+      };
+
+      const packedProtocolData =
+        await this.engine.contract.protocolDataPacked.fetch();
+
+      const protocolData = ProtocolData.unpack(packedProtocolData!);
 
       await this.transaction(
         this.agents[name].account,
         async () => {
-          AccountUpdate.fundNewAccount(this.agents[name].account, 1);
-          await this.agents[name].vault?.contract.deploy({
-            secret: this.agents[name].secret,
-          });
+          AccountUpdate.fundNewAccount(this.agents[name].account, 2);
+          await this.engine.contract.createVault(
+            this.agents[name].vault!.publicKey
+          );
         },
         {
-          extraSigners: [this.agents[name].vault?.privateKey],
+          extraSigners: [this.agents[name].vault.privateKey],
         }
       );
     }
-  }
-
-  async sendRewardsToVault(name: string, amount: UInt64) {
-    if (!this.agents.rewards) {
-      this.createAgents(['rewards']);
-    }
-
-    if (!this.agents[name]) {
-      throw new Error(`Agent ${name} not found`);
-    }
-
-    await this.transaction(this.agents.rewards.account, async () => {
-      let rewardsDistribution = AccountUpdate.createSigned(
-        this.agents.rewards.account
-      );
-      rewardsDistribution.send({
-        to: this.agents[name].vault!.publicKey!,
-        amount,
-      });
-    });
   }
 
   async updateOraclePrice(price: UInt64) {
     // Use the map to iterate over whitelisted oracles
     for (const [oracleName] of this.whitelistedOracles) {
       await this.transaction(this.agents[oracleName].account, async () => {
-        await this.priceFeedOracle.contract.submitPrice(price, this.whitelist);
+        await this.engine.contract.submitPrice(price, this.whitelist);
       });
     }
 
     await this.transaction(this.deployer, async () => {
-      await this.priceFeedOracle.contract.settlePriceUpdate();
+      await this.engine.contract.settlePriceUpdate();
     });
 
     //Move the blockchain forward
@@ -399,7 +371,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        await this.priceFeedOracle.contract.stopTheProtocol();
+        await this.engine.contract.stopTheProtocol();
       },
       {
         extraSigners: [this.protocolAdmin.privateKey],
@@ -411,7 +383,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        await this.priceFeedOracle.contract.resumeTheProtocol();
+        await this.engine.contract.resumeTheProtocol();
       },
       {
         extraSigners: [this.protocolAdmin.privateKey],
