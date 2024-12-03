@@ -669,6 +669,7 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
     const medianValues = [];
     for (let i = 3; i <= ZkUsdPriceFeedOracle.MAX_PARTICIPANTS; i++) {
       if (i % 2 === 0) {
+        Provable.log('Even count', i);
         let middleIndex = i / 2;
         medianValues.push(
           paddedPrices[middleIndex - 1]
@@ -676,6 +677,7 @@ export class ZkUsdPriceFeedOracle extends SmartContract {
             .div(UInt64.from(2))
         );
       } else {
+        Provable.log('Odd count', i);
         let middleIndex = (i - 1) / 2;
         medianValues.push(paddedPrices[middleIndex]);
       }

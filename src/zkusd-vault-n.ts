@@ -187,6 +187,128 @@ export class ZkUsdVault extends SmartContract {
   }
 
   /**
+   * @notice  This method is used to redeem collateral from the vault
+   * @param   amount - The amount of collateral to redeem
+   * @param   secret - The secret of the owner of the vault
+   */
+  @method.returns(VaultState)
+  public async redeemCollateral(
+    amount: UInt64,
+    owner: PublicKey,
+    price: UInt64
+  ) {
+    //Preconditions
+    let collateralAmount = this.collateralAmount.getAndRequireEquals();
+    let debtAmount = this.debtAmount.getAndRequireEquals();
+    let vaultOwner = this.owner.getAndRequireEquals();
+
+    //Assert the owner is correct
+    vaultOwner.assertEquals(owner);
+
+    //Assert the amount is less than or equal to the collateral amount
+    amount.assertLessThanOrEqual(
+      collateralAmount,
+      ZkUsdVaultErrors.INSUFFICIENT_COLLATERAL
+    );
+
+    //Calculate the USD value of the collateral after redemption
+    const remainingCollateral = collateralAmount.sub(amount);
+
+    //Calculate the health factor
+    const healthFactor = this.calculateHealthFactor(
+      remainingCollateral,
+      debtAmount,
+      price
+    );
+
+    //Assert the health factor is greater than the minimum health factor
+    healthFactor.assertGreaterThanOrEqual(
+      ZkUsdVault.MIN_HEALTH_FACTOR,
+      ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
+    );
+
+    //Update the collateral amount
+    this.collateralAmount.set(remainingCollateral);
+
+    return new VaultState({
+      collateralAmount: remainingCollateral,
+      debtAmount: debtAmount,
+      owner: owner,
+    });
+  }
+
+  /**
+   * @notice  This method is used to burn zkUSD by the vault
+   * @param   amount - The amount of zkUSD to burn
+   * @param   owner - The owner of the vault
+   */
+  @method.returns(VaultState)
+  public async burnZkUsd(amount: UInt64, owner: PublicKey) {
+    //Preconditions
+    let collateralAmount = this.collateralAmount.getAndRequireEquals();
+    let debtAmount = this.debtAmount.getAndRequireEquals();
+    let vaultOwner = this.owner.getAndRequireEquals();
+
+    //Assert the amount is greater than 0
+    amount.assertGreaterThan(UInt64.zero, ZkUsdVaultErrors.AMOUNT_ZERO);
+
+    //Assert the owner is correct
+    vaultOwner.assertEquals(owner);
+
+    //Assert the amount is less than the debt amount
+    debtAmount.assertGreaterThanOrEqual(
+      amount,
+      ZkUsdVaultErrors.AMOUNT_EXCEEDS_DEBT
+    );
+
+    //Update the debt amount
+    this.debtAmount.set(debtAmount.sub(amount));
+
+    return new VaultState({
+      collateralAmount: collateralAmount,
+      debtAmount: debtAmount.sub(amount),
+      owner: owner,
+    });
+  }
+
+  /**
+   * @notice  This method is used to liquidate the vault. It doesn't require the secret and can be called by anyone
+   *          as long as the health factor is less than the minimum health factor. The liquidator receives the collateral in return.
+   */
+  @method.returns(VaultState)
+  public async liquidate(price: UInt64) {
+    //Preconditions
+    let collateralAmount = this.collateralAmount.getAndRequireEquals();
+    let debtAmount = this.debtAmount.getAndRequireEquals();
+
+    //Calculate the health factor
+    const healthFactor = this.calculateHealthFactor(
+      collateralAmount,
+      debtAmount,
+      price
+    );
+
+    //Assert the health factor is less than the minimum health factor
+    healthFactor.assertLessThanOrEqual(
+      ZkUsdVault.MIN_HEALTH_FACTOR,
+      ZkUsdVaultErrors.HEALTH_FACTOR_TOO_HIGH
+    );
+
+    //Update the collateral amount
+    this.collateralAmount.set(UInt64.zero);
+
+    //Update the debt amount
+    this.debtAmount.set(UInt64.zero);
+
+    //Return the vault state before liquidation
+    return new VaultState({
+      collateralAmount: collateralAmount,
+      debtAmount: debtAmount,
+      owner: this.owner.getAndRequireEquals(),
+    });
+  }
+
+  /**
    * @notice  This method is used to calculate the health factor of the vault.
    *          We calculate the health factor by dividing the maximum allowed debt by the debt amount.
    *          The health factor is a normalised mesaure of the "healthiness" of the vault.

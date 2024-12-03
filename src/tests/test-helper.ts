@@ -52,9 +52,11 @@ export class TestAmounts {
   // zkUSD amounts
   static DEBT_100_ZKUSD = UInt64.from(100e9); // 100 zkUSD
   static DEBT_50_ZKUSD = UInt64.from(50e9); // 50 zkUSD
+  static DEBT_40_ZKUSD = UInt64.from(40e9); // 40 zkUSD
   static DEBT_30_ZKUSD = UInt64.from(30e9); // 30 zkUSD
   static DEBT_10_ZKUSD = UInt64.from(10e9); // 10 zkUSD
   static DEBT_5_ZKUSD = UInt64.from(5e9); // 5 zkUSD
+  static DEBT_4_ZKUSD = UInt64.from(4e9); // 4 zkUSD
   static DEBT_1_ZKUSD = UInt64.from(1e9); // 1 zkUSD
   static DEBT_50_CENT_ZKUSD = UInt64.from(5e8); // 0.5 zkUSD
   static DEBT_10_CENT_ZKUSD = UInt64.from(1e8); // 0.1 zkUSD
@@ -350,6 +352,8 @@ export class TestHelper {
   }
 
   async updateOraclePrice(price: UInt64) {
+    console.log('Number of whitelisted oracles', this.whitelistedOracles.size);
+
     // Use the map to iterate over whitelisted oracles
     for (const [oracleName] of this.whitelistedOracles) {
       await this.transaction(this.agents[oracleName].account, async () => {

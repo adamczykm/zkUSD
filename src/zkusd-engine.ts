@@ -233,7 +233,11 @@ export class ZkUsdEngine
   }
 
   @method async initialize() {
-    AccountUpdate.create(this.address, this.deriveTokenId());
+    let au = AccountUpdate.createSigned(this.address, this.deriveTokenId());
+    let permissions = Permissions.default();
+    permissions.send = Permissions.none();
+    permissions.setPermissions = Permissions.impossible();
+    au.account.permissions.set(permissions);
   }
 
   @method.returns(UInt64)
@@ -349,13 +353,50 @@ export class ZkUsdEngine
       this.address,
       tokenId
     );
-    totalDepositedCollateral.balanceChange = Int64.from(amount);
+    totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount);
     //Emit the DepositCollateral event
     this.emitEvent(
       'DepositCollateral',
       new DepositCollateralEvent({
         vaultAddress: this.address,
         amountDeposited: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
+  }
+
+  @method async redeemCollateral(vaultAddress: PublicKey, amount: UInt64) {
+    const tokenId = this.deriveTokenId();
+    const vault = new ZkUsdVault(vaultAddress, tokenId);
+
+    const price = await this.getPrice();
+    const owner = this.sender.getAndRequireSignatureV2();
+
+    const { collateralAmount, debtAmount } = await vault.redeemCollateral(
+      amount,
+      owner,
+      price
+    );
+
+    //Send the collateral back to the sender
+    this.send({
+      to: owner,
+      amount: amount,
+    });
+
+    const totalDepositedCollateral = AccountUpdate.create(
+      this.address,
+      tokenId
+    );
+    totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount).negV2();
+
+    //Emit the RedeemCollateral event
+    this.emitEvent(
+      'RedeemCollateral',
+      new RedeemCollateralEvent({
+        vaultAddress: this.address,
+        amountRedeemed: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
       })
@@ -381,6 +422,9 @@ export class ZkUsdEngine
     //Mint the zkUSD for the recipient
     await zkUSD.mint(owner, amount);
 
+    //Set the interaction flag to true
+    this.interactionFlag.set(Bool(true));
+
     //Emit the MintZkUsd event
     this.emitEvent(
       'MintZkUsd',
@@ -389,6 +433,76 @@ export class ZkUsdEngine
         amountMinted: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
+      })
+    );
+  }
+
+  @method async burnZkUsd(vaultAddress: PublicKey, amount: UInt64) {
+    const tokenId = this.deriveTokenId();
+    const vault = new ZkUsdVault(vaultAddress, tokenId);
+
+    const owner = this.sender.getAndRequireSignatureV2();
+
+    //Get the zkUSD token contract
+    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+
+    const { collateralAmount, debtAmount } = await vault.burnZkUsd(
+      amount,
+      owner
+    );
+
+    //Burn the zkUSD from the sender
+    await zkUSD.burn(owner, amount);
+
+    this.emitEvent(
+      'BurnZkUsd',
+      new BurnZkUsdEvent({
+        vaultAddress: this.address,
+        amountBurned: amount,
+        vaultCollateralAmount: collateralAmount,
+        vaultDebtAmount: debtAmount,
+      })
+    );
+  }
+
+  @method async liquidate(vaultAddress: PublicKey) {
+    const tokenId = this.deriveTokenId();
+    const vault = new ZkUsdVault(vaultAddress, tokenId);
+
+    //Get the zkUSD token contract
+    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+
+    const liquidator = this.sender.getAndRequireSignatureV2();
+
+    const price = await this.getPrice();
+
+    const { collateralAmount, debtAmount } = await vault.liquidate(price);
+
+    await zkUSD.burn(liquidator, debtAmount);
+
+    //Send the collateral to the liquidator
+    this.send({
+      to: liquidator,
+      amount: collateralAmount,
+    });
+
+    //Update the total deposited collateral
+    const totalDepositedCollateral = AccountUpdate.create(
+      this.address,
+      tokenId
+    );
+    totalDepositedCollateral.balanceChange =
+      Int64.fromUnsigned(collateralAmount).negV2();
+
+    //Emit the Liquidate event
+    this.emitEvent(
+      'Liquidate',
+      new LiquidateEvent({
+        vaultAddress: this.address,
+        liquidator: this.sender.getUnconstrainedV2(),
+        vaultCollateralLiquidated: collateralAmount,
+        vaultDebtRepaid: debtAmount,
+        price: price,
       })
     );
   }
@@ -626,14 +740,23 @@ export class ZkUsdEngine
       fromActionState: actionState,
     });
 
+    Provable.log('Number of pending actions', pendingActions);
+
     //Create an array of fallback prices
-    let priceArray = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(UInt64.zero);
+    let priceArray = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(UInt64.MAXINT());
+
+    const maxInteger = UInt64.from(Number.MAX_SAFE_INTEGER);
+
+    Provable.log('Max integer', maxInteger);
+    Provable.log('Max UInt64', UInt64.MAXINT());
 
     //Create the initial state
     let initialState = {
       prices: priceArray,
       count: UInt64.zero,
     };
+
+    Provable.log('Initial state', initialState);
 
     //Reduce the pending actions
     let newState = this.reducer.reduce(
@@ -661,6 +784,8 @@ export class ZkUsdEngine
         maxActionsPerUpdate: ZkUsdEngine.MAX_PARTICIPANTS,
       }
     );
+
+    Provable.log('New state', newState);
 
     //Calculate the median price as long as there is atleast a count of 3
     let medianPrice = Provable.if(
@@ -724,6 +849,17 @@ export class ZkUsdEngine
     this.priceEvenBlock.requireEqualsIf(isOddBlock.not(), prices.even);
 
     return Provable.if(isOddBlock, prices.odd, prices.even);
+  }
+
+  /**
+   * @notice  This method is used to assert the interaction flag, this is used to ensure that the zkUSD token contract knows it is being called from the vault
+   * @returns True if the flag is set
+   */
+
+  private assertInteractionFlag() {
+    this.interactionFlag.requireEquals(Bool(true));
+    this.interactionFlag.set(Bool(false));
+    return Bool(true);
   }
 
   /**
@@ -855,6 +991,8 @@ export class ZkUsdEngine
     // If we have 2 submissions, the array will contain: [price1, price2, fallbackPrice, fallbackPrice, ...]
     const prices = [...priceState.prices];
 
+    Provable.log('Prices', prices);
+
     // Sort prices using bubble sort
     for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS - 1; i++) {
       for (let j = 0; j < ZkUsdEngine.MAX_PARTICIPANTS - i - 1; j++) {
@@ -864,6 +1002,8 @@ export class ZkUsdEngine
         prices[j + 1] = temp;
       }
     }
+
+    Provable.log('Sorted prices', prices);
 
     // Create conditions for each possible count (1 through MAX_PARTICIPANTS)
     const conditions = [];
@@ -877,15 +1017,52 @@ export class ZkUsdEngine
     const medianValues = [];
     for (let i = 1; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
       if (i % 2 === 0) {
+        Provable.log('Even count', i);
         let middleIndex = i / 2;
-        medianValues.push(
-          prices[middleIndex - 1].add(prices[middleIndex]).div(UInt64.from(2))
+
+        let firstMiddleNumber = Provable.if(
+          prices[middleIndex - 1].equals(UInt64.MAXINT()),
+          UInt64.zero,
+          prices[middleIndex - 1]
         );
+
+        let secondMiddleNumber = Provable.if(
+          prices[middleIndex].equals(UInt64.MAXINT()),
+          UInt64.zero,
+          prices[middleIndex]
+        );
+
+        let calculatedMedian = firstMiddleNumber
+          .add(secondMiddleNumber)
+          .div(UInt64.from(2));
+
+        // Check if either middle value is MAXINT
+        let hasMaxInt = prices[middleIndex - 1]
+          .equals(UInt64.MAXINT())
+          .or(prices[middleIndex].equals(UInt64.MAXINT()));
+
+        calculatedMedian = Provable.if(
+          hasMaxInt,
+          UInt64.zero,
+          calculatedMedian
+        );
+
+        medianValues.push(calculatedMedian);
       } else {
+        Provable.log('Odd count', i);
         let middleIndex = (i - 1) / 2;
-        medianValues.push(prices[middleIndex]);
+        medianValues.push(
+          Provable.if(
+            prices[middleIndex].equals(UInt64.MAXINT()),
+            UInt64.zero,
+            prices[middleIndex]
+          )
+        );
       }
     }
+
+    Provable.log('Median values', medianValues);
+    Provable.log('Conditions', conditions);
 
     // Select the correct median value based on our effective count
     return Provable.switch(conditions, UInt64, medianValues);
@@ -893,7 +1070,7 @@ export class ZkUsdEngine
 
   @method.returns(Bool)
   public async canMint(_accountUpdate: AccountUpdate) {
-    return Bool(true);
+    return this.assertInteractionFlag();
   }
 
   @method.returns(Bool)
