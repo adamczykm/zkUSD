@@ -21,14 +21,25 @@ import {
   TokenContractV2,
   AccountUpdateForest,
   Int64,
+  fetchAccount,
 } from 'o1js';
-import { ZkUsdVault } from './zkusd-vault-n';
-import { ProtocolDataPacked, ProtocolData, VaultState } from './types';
-import { PriceFeedAction, PriceState } from './zkusd-price-feed-oracle';
-import { OracleWhitelist } from './zkusd-protocol-vault';
+import { ZkUsdVault } from './zkusd-vault';
+
+import {
+  OracleWhitelist,
+  PriceFeedAction,
+  PriceState,
+  ProtocolDataPacked,
+  ProtocolData,
+  VaultState,
+} from './types';
+import { ZkUsdMasterOracle } from './zkusd-master-oracle';
 
 // Errors
 export const ZkUsdEngineErrors = {
+  UPDATES_BLOCKED:
+    'Updates to the engine accounts can only be made by the engine',
+  VAULT_EXISTS: 'Vault already exists',
   SENDER_NOT_WHITELISTED: 'Sender not in the whitelist',
   INVALID_WHITELIST: 'Invalid whitelist',
   PENDING_ACTION_EXISTS: 'Address already has a pending action',
@@ -59,6 +70,7 @@ export class RedeemCollateralEvent extends Struct({
   amountRedeemed: UInt64,
   vaultCollateralAmount: UInt64,
   vaultDebtAmount: UInt64,
+  price: UInt64,
 }) {}
 
 export class MintZkUsdEvent extends Struct({
@@ -66,6 +78,7 @@ export class MintZkUsdEvent extends Struct({
   amountMinted: UInt64,
   vaultCollateralAmount: UInt64,
   vaultDebtAmount: UInt64,
+  price: UInt64,
 }) {}
 
 export class BurnZkUsdEvent extends Struct({
@@ -85,14 +98,10 @@ export class LiquidateEvent extends Struct({
 
 export class PriceUpdateEvent extends Struct({
   newPrice: UInt64,
-  blockNumber: UInt32,
-  isOddBlock: Bool,
 }) {}
 
 export class FallbackPriceUpdateEvent extends Struct({
   newPrice: UInt64,
-  blockNumber: UInt32,
-  isOddBlock: Bool,
 }) {}
 
 export class PriceSubmissionEvent extends Struct({
@@ -101,50 +110,33 @@ export class PriceSubmissionEvent extends Struct({
   oracleFee: UInt64,
 }) {}
 
-export class EmergencyStopEvent extends Struct({
-  blockNumber: UInt32,
-}) {}
+export class EmergencyStopEvent extends Struct({}) {}
 
-export class EmergencyResumeEvent extends Struct({
-  blockNumber: UInt32,
-}) {}
+export class EmergencyResumeEvent extends Struct({}) {}
 
-// Event Definitions
 export class AdminUpdatedEvent extends Struct({
   previousAdmin: PublicKey,
   newAdmin: PublicKey,
-  blockNumber: UInt32,
 }) {}
 
 export class OracleWhitelistUpdatedEvent extends Struct({
   previousHash: Field,
   newHash: Field,
-  blockNumber: UInt32,
-}) {}
-
-export class ProtocolFeeUpdated extends Struct({
-  previousFee: UInt64,
-  newFee: UInt64,
-  blockNumber: UInt32,
 }) {}
 
 export class OracleFeeUpdated extends Struct({
   previousFee: UInt64,
   newFee: UInt64,
-  blockNumber: UInt32,
 }) {}
 
-export class FundsWithdrawnEvent extends Struct({
-  recipient: PublicKey,
+export class OracleFundsDepositedEvent extends Struct({
   amount: UInt64,
-  blockNumber: UInt32,
 }) {}
 
 export interface ZkUsdEngineDeployProps extends Exclude<DeployArgs, undefined> {
   initialPrice: UInt64;
   admin: PublicKey;
   oracleFlatFee: UInt64;
-  protocolPercentageFee: UInt32;
   emergencyStop: Bool;
   vaultVerificationKeyHash: Field;
 }
@@ -171,20 +163,23 @@ export class ZkUsdEngine
     'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
   );
 
+  static MASTER_ORACLE_ADDRESS = PublicKey.fromBase58(
+    'B62qmApLja1zB4GwBLB9Xm1c6Fjc1PxgfCNa9z12wQorHUqZbaiKnym'
+  );
+
   // Reducer definition
   reducer = Reducer({ actionType: PriceFeedAction });
 
   readonly events = {
     PriceUpdate: PriceUpdateEvent,
     FallbackPriceUpdate: FallbackPriceUpdateEvent,
+    OracleFundsDeposited: OracleFundsDepositedEvent,
     PriceSubmission: PriceSubmissionEvent,
     EmergencyStop: EmergencyStopEvent,
     EmergencyResume: EmergencyResumeEvent,
     AdminUpdated: AdminUpdatedEvent,
     OracleWhitelistUpdated: OracleWhitelistUpdatedEvent,
-    ProtocolFeeUpdated: ProtocolFeeUpdated,
     OracleFeeUpdated: OracleFeeUpdated,
-    FundsWithdrawn: FundsWithdrawnEvent,
     NewVault: NewVaultEvent,
     DepositCollateral: DepositCollateralEvent,
     RedeemCollateral: RedeemCollateralEvent,
@@ -219,7 +214,6 @@ export class ZkUsdEngine
       ProtocolData.new({
         admin: args.admin,
         oracleFlatFee: args.oracleFlatFee,
-        protocolPercentageFee: args.protocolPercentageFee,
         emergencyStop: args.emergencyStop,
       }).pack()
     );
@@ -229,15 +223,50 @@ export class ZkUsdEngine
 
   //Blocks the updating of state of the token accounts
   approveBase(forest: AccountUpdateForest): Promise<void> {
-    throw Error('Updates Blocked');
+    throw Error(ZkUsdEngineErrors.UPDATES_BLOCKED);
   }
 
   @method async initialize() {
+    //Ensure admin key
+    await this.ensureAdminSignature();
+
+    //Set the permissions to track the collateral deposits on the engine
     let au = AccountUpdate.createSigned(this.address, this.deriveTokenId());
+    au.account.isNew.getAndRequireEquals().assertTrue();
     let permissions = Permissions.default();
     permissions.send = Permissions.none();
     permissions.setPermissions = Permissions.impossible();
     au.account.permissions.set(permissions);
+
+    // //Set up the master oracle to track the oracle funds and manage the fallback price
+    const masterOracle = AccountUpdate.createSigned(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
+    );
+    masterOracle.body.useFullCommitment = Bool(true);
+    masterOracle.account.isNew.getAndRequireEquals().assertTrue();
+
+    //Get the verification key for the master oracle
+    const masterOracleVerificationKey = new VerificationKey(
+      ZkUsdMasterOracle._verificationKey!
+    );
+
+    masterOracle.body.update.verificationKey = {
+      isSome: Bool(true),
+      value: masterOracleVerificationKey,
+    };
+
+    masterOracle.body.update.appState[0].value = this.priceEvenBlock
+      .getAndRequireEquals()
+      .toFields()[0];
+    masterOracle.body.update.appState[0].isSome = Bool(true);
+    masterOracle.body.update.appState[1].value = this.priceOddBlock
+      .getAndRequireEquals()
+      .toFields()[0];
+    masterOracle.body.update.appState[1].isSome = Bool(true);
+
+    masterOracle.account.permissions.set(permissions);
+    this.self.approve(masterOracle);
   }
 
   @method.returns(UInt64)
@@ -250,38 +279,75 @@ export class ZkUsdEngine
     return balance;
   }
 
-  //CREATE VAULT
+  @method.returns(UInt64)
+  async getAvailableOracleFunds(): Promise<UInt64> {
+    const account = AccountUpdate.create(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
+    ).account;
+    const balance = account.balance.getAndRequireEquals();
+
+    return balance;
+  }
+
+  /**
+   * @notice  Creates a new vault
+   * @dev     The vault is deployed manually on the token account of the engine contract, this way
+   *          we can ensure that updates to the vaults only happen through interaction with
+   *          the engine contract. This pattern also allows the engine to be the admin account for the
+   *          zkUSD token contract, which reduces the number of account updates when users take actions
+   *          against their vaults
+   * @param   vaultAddress The address of the vault to create
+   */
   @method async createVault(vaultAddress: PublicKey) {
+    //Preconditions
     const vaultVerificationKeyHash =
       this.vaultVerificationKeyHash.getAndRequireEquals();
 
-    const tokenId = this.deriveTokenId();
+    //The sender is the owner of the vault
+    const owner = this.sender.getAndRequireSignatureV2();
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
 
-    const update = AccountUpdate.createSigned(vaultAddress, tokenId);
-    update.body.useFullCommitment = Bool(true);
-    update.account.isNew.getAndRequireEquals().assertTrue(); //Create message here
+    //We create an account for the owner on the zkUSD token contract (if they don't already have one)
+    await zkUSD.getBalanceOf(owner);
 
+    //Create the new vault on the token account of the engine
+    const vault = AccountUpdate.createSigned(
+      vaultAddress,
+      this.deriveTokenId()
+    );
+
+    //Prevents memo and fee changes
+    vault.body.useFullCommitment = Bool(true);
+
+    //Ensures that the vault does not already exist
+    vault.account.isNew
+      .getAndRequireEquals()
+      .assertTrue(ZkUsdEngineErrors.VAULT_EXISTS);
+
+    //Get the verification key for the vault
     const vaultVerificationKey = new VerificationKey(
       ZkUsdVault._verificationKey!
     );
 
+    //Ensure that the verification key is the correct one for the vault
     vaultVerificationKey.hash.assertEquals(vaultVerificationKeyHash);
 
-    update.body.update.verificationKey = {
+    //Set the verification key for the vault
+    vault.body.update.verificationKey = {
       isSome: Bool(true),
       value: vaultVerificationKey,
     };
 
-    update.body.update.permissions = {
+    //Set the permissions for the vault
+    vault.body.update.permissions = {
       isSome: Bool(true),
       value: {
         ...Permissions.default(),
         send: Permissions.proof(),
-        // Allow the upgrade authority to set the verification key
-        // even when there is no protocol upgrade
+        // IMPORTANT: We need to think about upgradability here
         setVerificationKey:
           Permissions.VerificationKey.impossibleDuringCurrentVersion(),
         setPermissions: Permissions.impossible(),
@@ -291,11 +357,7 @@ export class ZkUsdEngine
       },
     };
 
-    const owner = this.sender.getAndRequireSignatureV2();
-
-    //Do this to avoid having to pay fee when they mint zkUSD
-    await zkUSD.getBalanceOf(owner);
-
+    //Set the initial state for the vault
     const initialVaultState = new VaultState({
       collateralAmount: UInt64.zero,
       debtAmount: UInt64.zero,
@@ -319,46 +381,61 @@ export class ZkUsdEngine
       };
     });
 
-    update.body.update.appState = appStateUpdates;
+    //Set the app state for the vault
+    vault.body.update.appState = appStateUpdates;
+
     //Emit the NewVault event
     this.emitEvent(
       'NewVault',
       new NewVaultEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
       })
     );
   }
 
+  /**
+   * @notice  Deposits collateral into a vault
+   * @notice  The actual collateral is held by the engine contract, we are using the vault to track
+   *          the state of each debt position
+   * @param   vaultAddress The address of the vault to deposit collateral to
+   * @param   amount The amount of collateral to deposit
+   */
   @method async depositCollateral(vaultAddress: PublicKey, amount: UInt64) {
-    const tokenId = this.deriveTokenId();
-    const vault = new ZkUsdVault(vaultAddress, tokenId);
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
+    //Create the account update for the collateral deposit
     const collateralDeposit = AccountUpdate.createSigned(
       this.sender.getUnconstrainedV2()
     );
 
+    //Send the collateral to the engine contract
     collateralDeposit.send({
       to: this.address,
       amount: amount,
     });
 
+    //Get the owner of the collateral deposit, as we already have a signature from them
     const owner = collateralDeposit.publicKey;
 
+    //Deposit the collateral into the vault
     const { collateralAmount, debtAmount } = await vault.depositCollateral(
       amount,
       owner
     );
 
+    //Update the total deposited collateral
     const totalDepositedCollateral = AccountUpdate.create(
       this.address,
-      tokenId
+      this.deriveTokenId()
     );
     totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount);
+
     //Emit the DepositCollateral event
     this.emitEvent(
       'DepositCollateral',
       new DepositCollateralEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
         amountDeposited: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
@@ -366,13 +443,22 @@ export class ZkUsdEngine
     );
   }
 
+  /**
+   * @notice  Redeems collateral from a vault
+   * @param   vaultAddress The address of the vault to redeem collateral from
+   * @param   amount The amount of collateral to redeem
+   */
   @method async redeemCollateral(vaultAddress: PublicKey, amount: UInt64) {
-    const tokenId = this.deriveTokenId();
-    const vault = new ZkUsdVault(vaultAddress, tokenId);
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
+    //Get the price
     const price = await this.getPrice();
+
+    //Get the owner of the collateral
     const owner = this.sender.getAndRequireSignatureV2();
 
+    //Redeem the collateral
     const { collateralAmount, debtAmount } = await vault.redeemCollateral(
       amount,
       owner,
@@ -385,9 +471,10 @@ export class ZkUsdEngine
       amount: amount,
     });
 
+    //Update the total deposited collateral
     const totalDepositedCollateral = AccountUpdate.create(
       this.address,
-      tokenId
+      this.deriveTokenId()
     );
     totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount).negV2();
 
@@ -395,24 +482,34 @@ export class ZkUsdEngine
     this.emitEvent(
       'RedeemCollateral',
       new RedeemCollateralEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
         amountRedeemed: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
+        price: price,
       })
     );
   }
 
+  /**
+   * @notice  Mints zkUSD for a vault
+   * @param   vaultAddress The address of the vault to mint zkUSD for
+   * @param   amount The amount of zkUSD to mint
+   */
   @method async mintZkUsd(vaultAddress: PublicKey, amount: UInt64) {
-    const tokenId = this.deriveTokenId();
-    const vault = new ZkUsdVault(vaultAddress, tokenId);
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
 
+    //Get the price
     const price = await this.getPrice();
+
+    //Get the owner of the zkUSD
     const owner = this.sender.getAndRequireSignatureV2();
 
+    //Manage the debt in the vault
     const { collateralAmount, debtAmount } = await vault.mintZkUsd(
       amount,
       owner,
@@ -429,23 +526,31 @@ export class ZkUsdEngine
     this.emitEvent(
       'MintZkUsd',
       new MintZkUsdEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
         amountMinted: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
+        price: price,
       })
     );
   }
 
+  /**
+   * @notice  Burns zkUSD from a vault
+   * @param   vaultAddress The address of the vault to burn zkUSD from
+   * @param   amount The amount of zkUSD to burn
+   */
   @method async burnZkUsd(vaultAddress: PublicKey, amount: UInt64) {
-    const tokenId = this.deriveTokenId();
-    const vault = new ZkUsdVault(vaultAddress, tokenId);
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
+    //Get the owner of the zkUSD
     const owner = this.sender.getAndRequireSignatureV2();
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
 
+    //Manage the debt in the vault
     const { collateralAmount, debtAmount } = await vault.burnZkUsd(
       amount,
       owner
@@ -454,10 +559,11 @@ export class ZkUsdEngine
     //Burn the zkUSD from the sender
     await zkUSD.burn(owner, amount);
 
+    //Emit the BurnZkUsd event
     this.emitEvent(
       'BurnZkUsd',
       new BurnZkUsdEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
         amountBurned: amount,
         vaultCollateralAmount: collateralAmount,
         vaultDebtAmount: debtAmount,
@@ -465,19 +571,26 @@ export class ZkUsdEngine
     );
   }
 
+  /**
+   * @notice  Liquidates a vault as long as the health factor is below 100
+   * @param   vaultAddress The address of the vault to liquidate
+   */
   @method async liquidate(vaultAddress: PublicKey) {
-    const tokenId = this.deriveTokenId();
-    const vault = new ZkUsdVault(vaultAddress, tokenId);
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
 
+    //Get the liquidator
     const liquidator = this.sender.getAndRequireSignatureV2();
 
+    //Get the price
     const price = await this.getPrice();
 
     const { collateralAmount, debtAmount } = await vault.liquidate(price);
 
+    //Burn the debt from the liquidator
     await zkUSD.burn(liquidator, debtAmount);
 
     //Send the collateral to the liquidator
@@ -489,7 +602,7 @@ export class ZkUsdEngine
     //Update the total deposited collateral
     const totalDepositedCollateral = AccountUpdate.create(
       this.address,
-      tokenId
+      this.deriveTokenId()
     );
     totalDepositedCollateral.balanceChange =
       Int64.fromUnsigned(collateralAmount).negV2();
@@ -498,13 +611,30 @@ export class ZkUsdEngine
     this.emitEvent(
       'Liquidate',
       new LiquidateEvent({
-        vaultAddress: this.address,
+        vaultAddress: vaultAddress,
         liquidator: this.sender.getUnconstrainedV2(),
         vaultCollateralLiquidated: collateralAmount,
         vaultDebtRepaid: debtAmount,
         price: price,
       })
     );
+  }
+
+  /**
+   * @notice  Returns the health factor of a vault
+   * @param   vaultAddress The address of the vault
+   * @returns The health factor of the vault
+   */
+  @method.returns(UInt64)
+  public async getVaultHealthFactor(vaultAddress: PublicKey): Promise<UInt64> {
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
+
+    //Get the price
+    const price = await this.getPrice();
+
+    //Return the health factor
+    return vault.getHealthFactor(price);
   }
 
   /**
@@ -538,12 +668,7 @@ export class ZkUsdEngine
     this.protocolDataPacked.set(protocolData.pack());
 
     // Add emergency stop event
-    this.emitEvent(
-      'EmergencyStop',
-      new EmergencyStopEvent({
-        blockNumber: this.network.blockchainLength.getAndRequireEquals(),
-      })
-    );
+    this.emitEvent('EmergencyStop', new EmergencyStopEvent({}));
   }
 
   /**
@@ -566,12 +691,7 @@ export class ZkUsdEngine
     this.protocolDataPacked.set(protocolData.pack());
 
     // Add emergency resume event
-    this.emitEvent(
-      'EmergencyResume',
-      new EmergencyResumeEvent({
-        blockNumber: this.network.blockchainLength.getAndRequireEquals(),
-      })
-    );
+    this.emitEvent('EmergencyResume', new EmergencyResumeEvent({}));
   }
 
   /**
@@ -593,35 +713,6 @@ export class ZkUsdEngine
     this.emitEvent('OracleWhitelistUpdated', {
       previousHash,
       newHash: updatedWhitelistHash,
-      blockNumber: this.network.blockchainLength.getAndRequireEquals(),
-    });
-  }
-
-  /**
-   * @notice  Updates the protocol fee percentage
-   * @param   fee The new protocol fee percentage
-   */
-  @method async updateProtocolFee(fee: UInt32) {
-    //Precondition
-    const protocolData = ProtocolData.unpack(
-      this.protocolDataPacked.getAndRequireEquals()
-    );
-
-    const previousFee = protocolData.protocolPercentageFee;
-
-    //Ensure admin signature
-    await this.ensureAdminSignature();
-
-    //Ensure the fee is less than or equal to 100 (its a percentage)
-    fee.assertLessThanOrEqual(UInt32.from(100), ZkUsdEngineErrors.INVALID_FEE);
-
-    protocolData.protocolPercentageFee = fee;
-    this.protocolDataPacked.set(protocolData.pack());
-
-    this.emitEvent('ProtocolFeeUpdated', {
-      previousFee: previousFee,
-      newFee: fee,
-      blockNumber: this.network.blockchainLength.getAndRequireEquals(),
     });
   }
 
@@ -645,17 +736,53 @@ export class ZkUsdEngine
     this.emitEvent('OracleFeeUpdated', {
       previousFee: previousFee,
       newFee: fee,
-      blockNumber: this.network.blockchainLength.getAndRequireEquals(),
+    });
+  }
+
+  @method async depositOracleFunds(amount: UInt64) {
+    //We track the funds in the token account of the engine address
+    const oracleFundsTrackerUpdate = AccountUpdate.create(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
+    );
+
+    oracleFundsTrackerUpdate.balanceChange = Int64.fromUnsigned(amount);
+
+    this.self.approve(oracleFundsTrackerUpdate);
+
+    //Create the account update for the deposit
+    const depositUpdate = AccountUpdate.createSigned(
+      this.sender.getUnconstrainedV2()
+    );
+
+    depositUpdate.send({
+      to: this.address,
+      amount: amount,
+    });
+
+    this.emitEvent('OracleFundsDeposited', {
+      amount: amount,
     });
   }
 
   /**
-   * @notice  Withdraws protocol funds
-   * @param   recipient The recipient of the funds
-   * @param   amount The amount of funds to withdraw
+   * @notice  Updates the fallback price
+   * @param   price The new fallback price
    */
-  @method async withdrawProtocolFunds(recipient: PublicKey, amount: UInt64) {
-    //THIS NEEDS TO BE REIMPLEMENTED
+  @method async updateFallbackPrice(price: UInt64) {
+    //Ensure admin signature
+    await this.ensureAdminSignature();
+
+    const masterOracle = new ZkUsdMasterOracle(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
+    );
+
+    await masterOracle.updateFallbackPrice(price);
+
+    this.emitEvent('FallbackPriceUpdate', {
+      newPrice: price,
+    });
   }
 
   /**
@@ -670,7 +797,6 @@ export class ZkUsdEngine
   @method async submitPrice(price: UInt64, whitelist: OracleWhitelist) {
     //We need to ensure the sender is the oracle in the whitelist
     const submitter = this.sender.getAndRequireSignatureV2();
-    const balance = this.account.balance.getAndRequireEquals();
     const protocolData = ProtocolData.unpack(
       this.protocolDataPacked.getAndRequireEquals()
     );
@@ -693,18 +819,22 @@ export class ZkUsdEngine
       price,
     });
 
-    //If the balance is less than the oracle fee, stop paying the fee
-    const payout = Provable.if(
-      balance.lessThan(oracleFee),
-      UInt64.zero,
-      oracleFee
+    const oracleFundsTracker = AccountUpdate.create(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
     );
+
+    oracleFundsTracker.balanceChange = Int64.fromUnsigned(oracleFee).negV2();
+
+    this.self.approve(oracleFundsTracker);
+
+    //TRANSACTION FAILS IF WE DONT HAVE AVAILABLE ORACLE FUNDS
 
     // Pay the oracle fee for the price submission
     const receiverUpdate = AccountUpdate.create(submitter);
 
-    receiverUpdate.balance.addInPlace(payout);
-    this.balance.subInPlace(payout);
+    receiverUpdate.balance.addInPlace(oracleFee);
+    this.balance.subInPlace(oracleFee);
 
     //Dispatch the action
     this.reducer.dispatch(priceFeedAction);
@@ -715,7 +845,7 @@ export class ZkUsdEngine
       new PriceSubmissionEvent({
         submitter: submitter,
         price: price,
-        oracleFee: payout,
+        oracleFee: oracleFee,
       })
     );
   }
@@ -735,28 +865,28 @@ export class ZkUsdEngine
     let actionState = this.actionState.getAndRequireEquals();
     const currentPrices = this.getAndRequireCurrentPrices();
 
+    //Get the master oracle
+    const masterOracle = new ZkUsdMasterOracle(
+      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
+      this.deriveTokenId()
+    );
+
+    //Get the fallback price
+    const fallbackPrice = await masterOracle.getFallbackPrice();
+
     //Get the pending actions
     let pendingActions = this.reducer.getActions({
       fromActionState: actionState,
     });
 
-    Provable.log('Number of pending actions', pendingActions);
-
     //Create an array of fallback prices
-    let priceArray = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(UInt64.MAXINT());
-
-    const maxInteger = UInt64.from(Number.MAX_SAFE_INTEGER);
-
-    Provable.log('Max integer', maxInteger);
-    Provable.log('Max UInt64', UInt64.MAXINT());
+    let priceArray = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(fallbackPrice);
 
     //Create the initial state
     let initialState = {
       prices: priceArray,
       count: UInt64.zero,
     };
-
-    Provable.log('Initial state', initialState);
 
     //Reduce the pending actions
     let newState = this.reducer.reduce(
@@ -785,21 +915,12 @@ export class ZkUsdEngine
       }
     );
 
-    Provable.log('New state', newState);
-
-    //Calculate the median price as long as there is atleast a count of 3
+    //Calculate the median price
     let medianPrice = Provable.if(
-      newState.count.greaterThanOrEqual(
-        UInt64.from(ZkUsdEngine.MIN_PRICE_SUBMISSIONS)
-      ),
-      this.calculateMedian(newState),
-      UInt64.zero
+      newState.count.greaterThan(UInt64.zero),
+      this.calculateMedian(newState, fallbackPrice),
+      fallbackPrice
     );
-
-    //Only update the price if the new price is greater than zero
-    medianPrice
-      .greaterThan(UInt64.zero)
-      .assertTrue(ZkUsdEngineErrors.AMOUNT_ZERO);
 
     //Update the correct price based on the median price
     const { evenPrice, oddPrice } = this.updateBlockPrices(
@@ -819,8 +940,6 @@ export class ZkUsdEngine
       'PriceUpdate',
       new PriceUpdateEvent({
         newPrice: medianPrice,
-        blockNumber: this.network.blockchainLength.get(),
-        isOddBlock: isOddBlock,
       })
     );
   }
@@ -986,83 +1105,70 @@ export class ZkUsdEngine
    * @param   fallbackPrice Used to pad the array if we have fewer than 3 submissions
    * @returns The calculated median price
    */
-  private calculateMedian(priceState: PriceState): UInt64 {
+  private calculateMedian(
+    priceState: PriceState,
+    fallbackPrice: UInt64
+  ): UInt64 {
     // Pad array with fallback prices for any unused slots
     // If we have 2 submissions, the array will contain: [price1, price2, fallbackPrice, fallbackPrice, ...]
-    const prices = [...priceState.prices];
+    const paddedPrices = priceState.prices.map((price, i) => {
+      return Provable.if(
+        UInt64.from(i).lessThan(priceState.count),
+        price,
+        fallbackPrice
+      );
+    });
 
-    Provable.log('Prices', prices);
+    // If we have fewer than 3 submissions, use 3 as the effective count
+    // This ensures we always calculate median using at least 3 values
+    const effectiveCount = Provable.if(
+      priceState.count.lessThan(UInt64.from(3)),
+      UInt64.from(3),
+      priceState.count
+    );
 
     // Sort prices using bubble sort
     for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS - 1; i++) {
       for (let j = 0; j < ZkUsdEngine.MAX_PARTICIPANTS - i - 1; j++) {
-        let shouldSwap = prices[j].greaterThan(prices[j + 1]);
-        let temp = Provable.if(shouldSwap, prices[j], prices[j + 1]);
-        prices[j] = Provable.if(shouldSwap, prices[j + 1], prices[j]);
-        prices[j + 1] = temp;
+        let shouldSwap = paddedPrices[j].greaterThan(paddedPrices[j + 1]);
+        let temp = Provable.if(
+          shouldSwap,
+          paddedPrices[j],
+          paddedPrices[j + 1]
+        );
+        paddedPrices[j] = Provable.if(
+          shouldSwap,
+          paddedPrices[j + 1],
+          paddedPrices[j]
+        );
+        paddedPrices[j + 1] = temp;
       }
     }
 
-    Provable.log('Sorted prices', prices);
-
-    // Create conditions for each possible count (1 through MAX_PARTICIPANTS)
+    // Create conditions for each possible count (3 through MAX_PARTICIPANTS)
+    // We'll use these to select the correct median calculation
     const conditions = [];
-    for (let i = 1; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
-      conditions.push(priceState.count.equals(UInt64.from(i)));
+    for (let i = 3; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
+      conditions.push(effectiveCount.equals(UInt64.from(i)));
     }
 
     // Calculate potential median values for each possible count
     // For even counts: average of two middle values
     // For odd counts: middle value
     const medianValues = [];
-    for (let i = 1; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
+    for (let i = 3; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
       if (i % 2 === 0) {
-        Provable.log('Even count', i);
         let middleIndex = i / 2;
-
-        let firstMiddleNumber = Provable.if(
-          prices[middleIndex - 1].equals(UInt64.MAXINT()),
-          UInt64.zero,
-          prices[middleIndex - 1]
-        );
-
-        let secondMiddleNumber = Provable.if(
-          prices[middleIndex].equals(UInt64.MAXINT()),
-          UInt64.zero,
-          prices[middleIndex]
-        );
-
-        let calculatedMedian = firstMiddleNumber
-          .add(secondMiddleNumber)
-          .div(UInt64.from(2));
-
-        // Check if either middle value is MAXINT
-        let hasMaxInt = prices[middleIndex - 1]
-          .equals(UInt64.MAXINT())
-          .or(prices[middleIndex].equals(UInt64.MAXINT()));
-
-        calculatedMedian = Provable.if(
-          hasMaxInt,
-          UInt64.zero,
-          calculatedMedian
-        );
-
-        medianValues.push(calculatedMedian);
-      } else {
-        Provable.log('Odd count', i);
-        let middleIndex = (i - 1) / 2;
         medianValues.push(
-          Provable.if(
-            prices[middleIndex].equals(UInt64.MAXINT()),
-            UInt64.zero,
-            prices[middleIndex]
-          )
+          paddedPrices[middleIndex - 1]
+            .add(paddedPrices[middleIndex])
+            .div(UInt64.from(2))
         );
+      } else {
+        let middleIndex = (i - 1) / 2;
+        medianValues.push(paddedPrices[middleIndex]);
       }
     }
-
-    Provable.log('Median values', medianValues);
-    Provable.log('Conditions', conditions);
 
     // Select the correct median value based on our effective count
     return Provable.switch(conditions, UInt64, medianValues);
@@ -1075,16 +1181,16 @@ export class ZkUsdEngine
 
   @method.returns(Bool)
   public async canChangeAdmin(_admin: PublicKey) {
-    return Bool(true);
+    return Bool(false);
   }
 
   @method.returns(Bool)
   public async canPause(): Promise<Bool> {
-    return Bool(true);
+    return Bool(false);
   }
 
   @method.returns(Bool)
   public async canResume(): Promise<Bool> {
-    return Bool(true);
+    return Bool(false);
   }
 }

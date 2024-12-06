@@ -22,21 +22,19 @@ export class OracleWhitelist extends Struct({
 export class ProtocolData extends Struct({
   admin: PublicKey,
   oracleFlatFee: UInt64,
-  protocolPercentageFee: UInt32,
   emergencyStop: Bool,
 }) {
   static new(
     params: {
       admin?: PublicKey;
       oracleFlatFee?: UInt64;
-      protocolPercentageFee?: UInt32;
+
       emergencyStop?: Bool;
     } = {}
   ): ProtocolData {
     return new ProtocolData({
       admin: params.admin ?? PublicKey.empty(),
       oracleFlatFee: params.oracleFlatFee ?? UInt64.zero,
-      protocolPercentageFee: params.protocolPercentageFee ?? UInt32.zero,
       emergencyStop: params.emergencyStop ?? Bool(false),
     });
   }
@@ -46,7 +44,6 @@ export class ProtocolData extends Struct({
       adminX: this.admin.x,
       packedData: Field.fromBits([
         ...this.oracleFlatFee.value.toBits(64),
-        ...this.protocolPercentageFee.value.toBits(32),
         this.emergencyStop,
         this.admin.isOdd,
       ]),
@@ -54,15 +51,12 @@ export class ProtocolData extends Struct({
   }
 
   static unpack(packed: ProtocolDataPacked) {
-    const bits = packed.packedData.toBits(64 + 32 + 2);
+    const bits = packed.packedData.toBits(64 + 2);
     const oracleFlatFee = UInt64.Unsafe.fromField(
       Field.fromBits(bits.slice(0, 64))
     );
-    const protocolPercentageFee = UInt32.Unsafe.fromField(
-      Field.fromBits(bits.slice(64, 64 + 32))
-    );
-    const emergencyStop = Bool(bits[64 + 32]);
-    const adminIsOdd = Bool(bits[64 + 32 + 1]);
+    const emergencyStop = Bool(bits[64]);
+    const adminIsOdd = Bool(bits[64 + 1]);
     const admin = PublicKey.from({
       x: packed.adminX,
       isOdd: adminIsOdd,
@@ -70,7 +64,6 @@ export class ProtocolData extends Struct({
     return new ProtocolData({
       admin: admin,
       oracleFlatFee: oracleFlatFee,
-      protocolPercentageFee: protocolPercentageFee,
       emergencyStop: emergencyStop,
     });
   }

@@ -13,8 +13,9 @@ import {
 } from 'o1js';
 import { OracleWhitelist, ProtocolData } from '../types';
 import { ZkUsdEngine, ZkUsdEngineDeployProps } from '../zkusd-engine';
-import { ZkUsdVault } from '../zkusd-vault-n';
+import { ZkUsdVault } from '../zkusd-vault';
 import { FungibleToken, FungibleTokenAdminBase } from 'mina-fungible-token';
+import { ZkUsdMasterOracle } from '../zkusd-master-oracle';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -44,6 +45,7 @@ export class TestAmounts {
 
   // Collateral amounts
   static COLLATERAL_900_MINA = UInt64.from(900e9); // 900 Mina
+  static COLLATERAL_200_MINA = UInt64.from(200e9); // 200 Mina
   static COLLATERAL_100_MINA = UInt64.from(100e9); // 100 Mina
   static COLLATERAL_50_MINA = UInt64.from(50e9); // 50 Mina
   static COLLATERAL_2_MINA = UInt64.from(2e9); // 2 Mina
@@ -74,22 +76,60 @@ export class TestAmounts {
   static PRICE_10_USD = UInt64.from(1e10); // 10 USD
 }
 
+interface KeyPair {
+  privateKey: PrivateKey;
+  publicKey: PublicKey;
+}
+
 export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
   token: ContractInstance<FungibleToken>;
   engine: ContractInstance<ZkUsdEngine>;
+  masterOracle: ContractInstance<ZkUsdMasterOracle>;
   vaultVerificationKeyHash?: Field;
-  protocolAdmin: {
-    privateKey: PrivateKey;
-    publicKey: PublicKey;
-  };
   whitelist: OracleWhitelist;
   whitelistedOracles: Map<string, number> = new Map();
   currentAccountIndex: number = 0;
   Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
 
   static proofsEnabled = false;
+
+  static protocolAdminKeyPair = {
+    privateKey: PrivateKey.fromBase58(
+      'EKFUUqHJ4d7Q78c6UYHrdNL5j4xr7QnQFtxWWSM7f1idttzJ5TPH'
+    ),
+    publicKey: PublicKey.fromBase58(
+      'B62qpQzmXmB3euvH3U5sfckNicA6zm7dDYSajXJEEVk5NMAtXzeefgu'
+    ),
+  };
+
+  static masterOracleKeyPair = {
+    privateKey: PrivateKey.fromBase58(
+      'EKEvEeJQqe1e6TFVYsvMpGeJAXtSPNmCrHDWSWHS1Swum8iuTnq9'
+    ),
+    publicKey: PublicKey.fromBase58(
+      'B62qmApLja1zB4GwBLB9Xm1c6Fjc1PxgfCNa9z12wQorHUqZbaiKnym'
+    ),
+  };
+
+  static tokenKeyPair = {
+    privateKey: PrivateKey.fromBase58(
+      'EKDveJ7bFB2SEFU52rgob94xa9NV5fVwarpDKGSQ6TPkmtb9MNd9'
+    ),
+    publicKey: PublicKey.fromBase58(
+      'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
+    ),
+  };
+
+  static engineKeyPair = {
+    privateKey: PrivateKey.fromBase58(
+      'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
+    ),
+    publicKey: PublicKey.fromBase58(
+      'B62qkwLvZ6e5NzRgQwkTaA9m88fTUZLHmpwvmCQEqbp5KcAAfqFAaf9'
+    ),
+  };
 
   createVaultKeyPair(): { publicKey: PublicKey; privateKey: PrivateKey } {
     return PrivateKey.randomKeypair();
@@ -101,7 +141,6 @@ export class TestHelper {
     });
     Mina.setActiveInstance(this.Local);
     this.deployer = this.Local.testAccounts[this.currentAccountIndex];
-    this.protocolAdmin = PrivateKey.randomKeypair();
     this.currentAccountIndex++;
     this.whitelist = new OracleWhitelist({
       addresses: Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(PublicKey.empty()),
@@ -198,67 +237,47 @@ export class TestHelper {
   }
 
   async deployTokenContracts() {
-    const tokenKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKDveJ7bFB2SEFU52rgob94xa9NV5fVwarpDKGSQ6TPkmtb9MNd9'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qry2wngUSGZqQn9erfnA9rZPn4cMbDG1XPasGdK1EtKQAxmgjDtt'
-      ),
-    };
-
-    const engineKeyPair = {
-      privateKey: PrivateKey.fromBase58(
-        'EKEfFkTEhZZi1UrPHKAmSZadmxx16rP8aopMm5XHbyDM96M9kXzD'
-      ),
-      publicKey: PublicKey.fromBase58(
-        'B62qkwLvZ6e5NzRgQwkTaA9m88fTUZLHmpwvmCQEqbp5KcAAfqFAaf9'
-      ),
-    };
-
     FungibleToken.AdminContract = ZkUsdEngine;
 
     this.token = {
-      contract: new FungibleToken(tokenKeyPair.publicKey),
-      publicKey: tokenKeyPair.publicKey,
-      privateKey: tokenKeyPair.privateKey,
+      contract: new FungibleToken(TestHelper.tokenKeyPair.publicKey),
+      publicKey: TestHelper.tokenKeyPair.publicKey,
+      privateKey: TestHelper.tokenKeyPair.privateKey,
     };
     this.engine = {
-      contract: new ZkUsdEngine(engineKeyPair.publicKey),
-      publicKey: engineKeyPair.publicKey,
-      privateKey: engineKeyPair.privateKey,
+      contract: new ZkUsdEngine(TestHelper.engineKeyPair.publicKey),
+      publicKey: TestHelper.engineKeyPair.publicKey,
+      privateKey: TestHelper.engineKeyPair.privateKey,
     };
 
     if (TestHelper.proofsEnabled) {
       await this.compileContracts();
     }
 
-    const verification = await ZkUsdVault.compile();
-    this.vaultVerificationKeyHash = verification.verificationKey.hash;
+    const vaultVerification = await ZkUsdVault.compile();
+    this.vaultVerificationKeyHash = vaultVerification.verificationKey.hash;
+
+    await ZkUsdMasterOracle.compile();
 
     //Create the protocol admin
     await this.transaction(
       this.deployer,
       async () => {
         AccountUpdate.fundNewAccount(this.deployer, 1);
-        AccountUpdate.createSigned(this.protocolAdmin.publicKey);
+        AccountUpdate.createSigned(TestHelper.protocolAdminKeyPair.publicKey);
       },
       {
-        extraSigners: [this.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
 
     // Deploying zkUSD Token and Admin contracts
 
-    //50% protocol fee
-    const FIFTY_PERCENT = UInt32.from(50);
-
     //Create deploy props for the engine
     const engineDeployProps: ZkUsdEngineDeployProps = {
       initialPrice: TestAmounts.PRICE_1_USD,
-      admin: this.protocolAdmin.publicKey,
+      admin: TestHelper.protocolAdminKeyPair.publicKey,
       oracleFlatFee: TestAmounts.COLLATERAL_1_MINA,
-      protocolPercentageFee: FIFTY_PERCENT,
       emergencyStop: Bool(false),
       vaultVerificationKeyHash: this.vaultVerificationKeyHash!,
     };
@@ -266,7 +285,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 4);
+        AccountUpdate.fundNewAccount(this.deployer, 3);
         await this.token.contract.deploy({
           symbol: 'zkUSD',
           src: 'TBD',
@@ -277,12 +296,40 @@ export class TestHelper {
           Bool(false)
         );
         await this.engine.contract.deploy(engineDeployProps);
+      },
+      {
+        extraSigners: [
+          this.token.privateKey,
+          this.engine.privateKey,
+          TestHelper.protocolAdminKeyPair.privateKey,
+          TestHelper.masterOracleKeyPair.privateKey,
+        ],
+      }
+    );
+
+    await this.transaction(
+      this.deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(this.deployer, 2);
         await this.engine.contract.initialize();
       },
       {
-        extraSigners: [this.token.privateKey, this.engine.privateKey],
+        extraSigners: [
+          TestHelper.protocolAdminKeyPair.privateKey,
+          this.engine.privateKey,
+          TestHelper.masterOracleKeyPair.privateKey,
+        ],
       }
     );
+
+    this.masterOracle = {
+      contract: new ZkUsdMasterOracle(
+        TestHelper.masterOracleKeyPair.publicKey,
+        this.engine.contract.deriveTokenId()
+      ),
+      publicKey: TestHelper.masterOracleKeyPair.publicKey,
+      privateKey: TestHelper.masterOracleKeyPair.privateKey,
+    };
 
     //Lets also add a few trusted oracles to the whitelist
     for (let i = 0; i < 3; i++) {
@@ -298,17 +345,15 @@ export class TestHelper {
         await this.engine.contract.updateOracleWhitelist(this.whitelist);
       },
       {
-        extraSigners: [this.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
 
     //Transfer Mina to the price feed oracle to pay the oracle fee
     await this.transaction(this.deployer, async () => {
-      let transfer = AccountUpdate.createSigned(this.deployer);
-      transfer.send({
-        to: this.engine.publicKey,
-        amount: TestAmounts.COLLATERAL_100_MINA,
-      });
+      await this.engine.contract.depositOracleFunds(
+        TestAmounts.COLLATERAL_100_MINA
+      );
     });
   }
 
@@ -320,8 +365,6 @@ export class TestHelper {
 
       const vaultKeyPair = this.createVaultKeyPair();
 
-      console.log('Token Id of engine', this.engine.contract.deriveTokenId());
-
       this.agents[name].vault = {
         contract: new ZkUsdVault(
           vaultKeyPair.publicKey,
@@ -330,11 +373,6 @@ export class TestHelper {
         publicKey: vaultKeyPair.publicKey,
         privateKey: vaultKeyPair.privateKey,
       };
-
-      const packedProtocolData =
-        await this.engine.contract.protocolDataPacked.fetch();
-
-      const protocolData = ProtocolData.unpack(packedProtocolData!);
 
       await this.transaction(
         this.agents[name].account,
@@ -352,8 +390,6 @@ export class TestHelper {
   }
 
   async updateOraclePrice(price: UInt64) {
-    console.log('Number of whitelisted oracles', this.whitelistedOracles.size);
-
     // Use the map to iterate over whitelisted oracles
     for (const [oracleName] of this.whitelistedOracles) {
       await this.transaction(this.agents[oracleName].account, async () => {
@@ -378,7 +414,7 @@ export class TestHelper {
         await this.engine.contract.stopTheProtocol();
       },
       {
-        extraSigners: [this.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
   }
@@ -390,7 +426,7 @@ export class TestHelper {
         await this.engine.contract.resumeTheProtocol();
       },
       {
-        extraSigners: [this.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
   }
