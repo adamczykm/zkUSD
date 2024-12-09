@@ -401,8 +401,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     // Get oracle's initial balance
     const oracleBalanceBefore = Mina.getBalance(oracle);
 
-    console.log('oracleBalanceBefore', oracleBalanceBefore.toString());
-
     // Submit price from oracle
     await testHelper.transaction(oracle, async () => {
       await testHelper.engine.contract.submitPrice(
@@ -414,25 +412,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     // Get oracle's balance after submission
     const oracleBalanceAfter = Mina.getBalance(oracle);
 
-    console.log('oracleBalanceAfter', oracleBalanceAfter.toString());
-
-    console.log('oracleFee', oracleFee.toString());
-
     const priceFeedOracleBalanceAfter = Mina.getBalance(
       testHelper.engine.publicKey
     );
 
     const oracleFundsInEngineAfter =
       await testHelper.engine.contract.getAvailableOracleFunds();
-
-    console.log(
-      'Available Oracle Funds Before',
-      oracleFundsInEngineBefore.toString()
-    );
-    console.log(
-      'Available Oracle Funds After',
-      oracleFundsInEngineAfter.toString()
-    );
 
     // Verify oracle received the fee
     expect(oracleBalanceAfter.toString()).toEqual(

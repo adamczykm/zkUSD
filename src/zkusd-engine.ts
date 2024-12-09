@@ -119,6 +119,8 @@ export class AdminUpdatedEvent extends Struct({
   newAdmin: PublicKey,
 }) {}
 
+export class VerificationKeyUpdatedEvent extends Struct({}) {}
+
 export class OracleWhitelistUpdatedEvent extends Struct({
   previousHash: Field,
   newHash: Field,
@@ -178,6 +180,7 @@ export class ZkUsdEngine
     EmergencyStop: EmergencyStopEvent,
     EmergencyResume: EmergencyResumeEvent,
     AdminUpdated: AdminUpdatedEvent,
+    VerificationKeyUpdated: VerificationKeyUpdatedEvent,
     OracleWhitelistUpdated: OracleWhitelistUpdatedEvent,
     OracleFeeUpdated: OracleFeeUpdated,
     NewVault: NewVaultEvent,
@@ -736,6 +739,41 @@ export class ZkUsdEngine
     this.emitEvent('OracleFeeUpdated', {
       previousFee: previousFee,
       newFee: fee,
+    });
+  }
+
+  /**
+   * @notice  Updates the verification key for the protocol vault
+   * @param   vk The new verification key
+   */
+  @method
+  async updateVerificationKey(vk: VerificationKey) {
+    await this.ensureAdminSignature();
+    this.account.verificationKey.set(vk);
+
+    this.emitEvent('VerificationKeyUpdated', {});
+  }
+
+  /**
+   * @notice  Updates the admin public key
+   * @param   newAdmin The new admin public key
+   */
+  @method async updateAdmin(newAdmin: PublicKey) {
+    //Ensure admin signature
+    await this.ensureAdminSignature();
+
+    const protocolData = ProtocolData.unpack(
+      this.protocolDataPacked.getAndRequireEquals()
+    );
+
+    const previousAdmin = protocolData.admin;
+
+    protocolData.admin = newAdmin;
+    this.protocolDataPacked.set(protocolData.pack());
+
+    this.emitEvent('AdminUpdated', {
+      previousAdmin,
+      newAdmin,
     });
   }
 

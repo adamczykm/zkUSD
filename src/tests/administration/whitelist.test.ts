@@ -1,8 +1,8 @@
 import { Field, Poseidon, PrivateKey, PublicKey } from 'o1js';
 import { TestHelper } from '../test-helper';
-import { OracleWhitelist } from '../../zkusd-protocol-vault';
+import { OracleWhitelist } from '../../types';
 
-describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
+describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
   const testHelper = new TestHelper();
   let whitelist: OracleWhitelist;
 
@@ -30,12 +30,10 @@ describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.protocolVault.contract.updateOracleWhitelist(
-          whitelist
-        );
+        await testHelper.engine.contract.updateOracleWhitelist(whitelist);
       },
       {
-        extraSigners: [testHelper.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
 
@@ -44,7 +42,7 @@ describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
     );
 
     expect(
-      await testHelper.protocolVault.contract.getOracleWhitelistHash()
+      await testHelper.engine.contract.oracleWhitelistHash.fetch()
     ).toEqual(expectedWhitelistHash);
   });
 
@@ -57,9 +55,7 @@ describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
 
     await expect(
       testHelper.transaction(testHelper.deployer, async () => {
-        await testHelper.protocolVault.contract.updateOracleWhitelist(
-          whitelist
-        );
+        await testHelper.engine.contract.updateOracleWhitelist(whitelist);
       })
     ).rejects.toThrow(/Transaction verification failed/i);
   });
@@ -75,16 +71,15 @@ describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.protocolVault.contract.updateOracleWhitelist(
-            whitelist
-          );
+          await testHelper.engine.contract.updateOracleWhitelist(whitelist);
         },
         {
-          extraSigners: [testHelper.protocolAdmin.privateKey],
+          extraSigners: [TestHelper.engineKeyPair.privateKey],
         }
       )
     ).rejects.toThrow('Expected witnessed values of length 20, got 22.');
   });
+
   it('should not allow updating with an invalid whitelist', async () => {
     testHelper.whitelist.addresses[1] = 'RandomString' as unknown as PublicKey;
 
@@ -92,12 +87,12 @@ describe('zkUSD Price Feed Oracle OracleWhitelist Test Suite', () => {
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.protocolVault.contract.updateOracleWhitelist(
+          await testHelper.engine.contract.updateOracleWhitelist(
             testHelper.whitelist
           );
         },
         {
-          extraSigners: [testHelper.protocolAdmin.privateKey],
+          extraSigners: [TestHelper.engineKeyPair.privateKey],
         }
       )
     ).rejects.toThrow('Cannot convert undefined to a BigInt');

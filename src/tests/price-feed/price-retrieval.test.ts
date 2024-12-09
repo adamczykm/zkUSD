@@ -19,7 +19,7 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     testHelper.Local.setBlockchainLength(UInt32.from(4));
 
-    const price = await testHelper.priceFeedOracle.contract.getPrice();
+    const price = await testHelper.engine.contract.getPrice();
 
     expect(price.toString()).toEqual(TestAmounts.PRICE_48_CENT.toString());
   });
@@ -33,7 +33,7 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     testHelper.Local.setBlockchainLength(UInt32.from(4));
 
-    const price = await testHelper.priceFeedOracle.contract.getPrice();
+    const price = await testHelper.engine.contract.getPrice();
 
     expect(price.toString()).toEqual(TestAmounts.PRICE_48_CENT.toString());
   });

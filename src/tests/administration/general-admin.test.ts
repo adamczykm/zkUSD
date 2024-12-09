@@ -19,11 +19,7 @@ import {
   Mina,
 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
-import {
-  OracleWhitelist,
-  ZkUsdProtocolVaultErrors,
-} from '../../zkusd-protocol-vault';
-import { ZkUsdPriceFeedOracleErrors } from '../../zkusd-price-feed-oracle';
+import { ProtocolData } from '../../types';
 
 describe('zkUSD Protocol Vault Administration Test Suite', () => {
   const testHelper = new TestHelper();
@@ -36,13 +32,13 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
 
-    await testHelper.deployVaults(['alice']);
+    await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina
     await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.agents.alice.vault?.contract.depositCollateral(
-        TestAmounts.COLLATERAL_100_MINA,
-        testHelper.agents.alice.secret
+      await testHelper.engine.contract.depositCollateral(
+        testHelper.agents.alice.vault!.publicKey,
+        TestAmounts.COLLATERAL_100_MINA
       );
     });
 
@@ -57,65 +53,70 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await testHelper.transaction(
       testHelper.agents.alice.account,
       async () => {
-        await testHelper.protocolVault.contract.updateAdmin(newAdmin.publicKey);
+        await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
       },
       {
-        extraSigners: [testHelper.protocolAdmin.privateKey],
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
     );
 
     //Verify the admin key is updated
-    const adminKey = await testHelper.protocolVault.contract.admin.fetch();
-    expect(adminKey).toEqual(newAdmin.publicKey);
+    const packedData =
+      await testHelper.engine.contract.protocolDataPacked.fetch();
+    const protocolData = ProtocolData.unpack(packedData!);
+
+    expect(protocolData.admin).toEqual(newAdmin.publicKey);
   });
 
   it('should allow the new admin key to make updates to the protocol vault', async () => {
     await testHelper.transaction(
       testHelper.agents.alice.account,
       async () => {
-        await testHelper.priceFeedOracle.contract.stopTheProtocol();
+        await testHelper.engine.contract.stopTheProtocol();
       },
       {
         extraSigners: [newAdmin.privateKey],
       }
     );
 
-    let isHalted =
-      await testHelper.priceFeedOracle.contract.protocolEmergencyStop.fetch();
-    expect(isHalted).toEqual(Bool(true));
+    let packedData =
+      await testHelper.engine.contract.protocolDataPacked.fetch();
+    let protocolData = ProtocolData.unpack(packedData!);
+
+    expect(protocolData.emergencyStop).toEqual(Bool(true));
 
     //Resume the protocol
     await testHelper.transaction(
       testHelper.agents.alice.account,
       async () => {
-        await testHelper.priceFeedOracle.contract.resumeTheProtocol();
+        await testHelper.engine.contract.resumeTheProtocol();
       },
       { extraSigners: [newAdmin.privateKey] }
     );
 
-    isHalted =
-      await testHelper.priceFeedOracle.contract.protocolEmergencyStop.fetch();
-    expect(isHalted).toEqual(Bool(false));
+    packedData = await testHelper.engine.contract.protocolDataPacked.fetch();
+    protocolData = ProtocolData.unpack(packedData!);
+
+    expect(protocolData.emergencyStop).toEqual(Bool(false));
   });
 
   it('should not allow the admin key to be updated without the current admin key', async () => {
     await expect(
       testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.protocolVault.contract.updateAdmin(newAdmin.publicKey);
+        await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
       })
     ).rejects.toThrow(/Transaction verification failed/i);
   });
 
   it('should not allow the admin contract to be upgraded in the current version', async () => {
-    const oldAccount = Mina.getAccount(testHelper.protocolVault.publicKey);
-
+    const oldAccount = Mina.getAccount(testHelper.engine.publicKey);
     const verificationKey = oldAccount.zkapp?.verificationKey;
 
     await expect(
       testHelper.transaction(
         testHelper.deployer,
         async () => {
-          await testHelper.protocolVault.contract.updateVerificationKey(
+          await testHelper.engine.contract.updateVerificationKey(
             verificationKey!
           );
         },
