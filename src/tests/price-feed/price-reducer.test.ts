@@ -21,6 +21,15 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     expect(price.toString()).toEqual(TestAmounts.PRICE_25_CENT.toString());
   });
 
+  it('should emit the price update event', async () => {
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('PriceUpdate');
+    // @ts-ignore
+    expect(latestEvent.event.data.newPrice).toEqual(TestAmounts.PRICE_25_CENT);
+  });
+
   it('should settle the even price if we are on an odd block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(1));
     await testHelper.updateOraclePrice(TestAmounts.PRICE_50_CENT);

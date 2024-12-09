@@ -901,6 +901,7 @@ export class ZkUsdEngine
     //Preconditions
     const { isOddBlock } = this.getBlockInfo();
     let actionState = this.actionState.getAndRequireEquals();
+    Provable.log('Action state', actionState);
     const currentPrices = this.getAndRequireCurrentPrices();
 
     //Get the master oracle

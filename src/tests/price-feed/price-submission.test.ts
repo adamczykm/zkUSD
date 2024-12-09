@@ -69,6 +69,39 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     expect(oracle1Address).toEqual(addressInActionState);
   });
 
+  it('should emit the price submission event', async () => {
+    const whitelistedOracles = testHelper.whitelistedOracles;
+
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
+
+    await testHelper.transaction(
+      testHelper.agents[oracleName].account,
+      async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          testHelper.whitelist
+        );
+      }
+    );
+
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    console.log(contractEvents);
+
+    expect(latestEvent.type).toEqual('PriceSubmission');
+    // @ts-ignore
+    expect(latestEvent.event.data.submitter.toBase58()).toEqual(
+      testHelper.agents[oracleName].account.toBase58()
+    );
+    // @ts-ignore
+    expect(latestEvent.event.data.price).toEqual(TestAmounts.PRICE_25_CENT);
+    // @ts-ignore
+    expect(latestEvent.event.data.oracleFee).toEqual(
+      TestAmounts.COLLATERAL_1_MINA
+    );
+  });
+
   it('should not allow a whitelisted address to submit a second price before settlement', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
 
@@ -311,6 +344,27 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
   });
 
+  it('should emit the fallback price update event', async () => {
+    await testHelper.transaction(
+      testHelper.deployer,
+      async () => {
+        await testHelper.engine.contract.updateFallbackPrice(
+          TestAmounts.PRICE_48_CENT
+        );
+      },
+      {
+        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+      }
+    );
+
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('FallbackPriceUpdate');
+    // @ts-ignore
+    expect(latestEvent.event.data.newPrice).toEqual(TestAmounts.PRICE_48_CENT);
+  });
+
   it('should update the even fallback price if we are on an odd block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(1));
     await testHelper.transaction(
@@ -481,7 +535,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       UInt64.zero.toString()
     );
 
-    //set the fee to the balance of the oracle to drain the funds
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
@@ -499,6 +552,19 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
+    const actionState = await testHelper.engine.contract.actionState.fetch();
+
+    console.log('actionStateBeforeFailure', actionState);
+
+    const priceFeedActionsBeforeFailure = Mina.getActions(
+      testHelper.engine.publicKey,
+      {
+        fromActionState: actionState,
+      }
+    );
+
+    console.log('priceFeedActionsBeforeFailure', priceFeedActionsBeforeFailure);
+
     //Submit a new price - this should fail
     await expect(
       testHelper.transaction(
@@ -511,5 +577,84 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         }
       )
     ).rejects.toThrow(/Overflow/i);
+
+    const actionStateAfterFailure =
+      await testHelper.engine.contract.actionState.fetch();
+
+    const priceFeedActionsAfterFailure = Mina.getActions(
+      testHelper.engine.publicKey,
+      {
+        fromActionState: actionStateAfterFailure,
+      }
+    );
+
+    console.log('priceFeedActionsAfterFailure', priceFeedActionsAfterFailure);
+
+    const actionStateAfter =
+      await testHelper.engine.contract.actionState.fetch();
+
+    console.log('actionStateAfter Failure', actionStateAfter);
+
+    //Deposit funds into the oracle
+
+    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+      await testHelper.engine.contract.depositOracleFunds(
+        TestAmounts.COLLATERAL_50_MINA
+      );
+    });
+
+    // //Submit a new price - this should succeed
+    // await testHelper.transaction(
+    //   testHelper.agents[oracleName].account,
+    //   async () => {
+    //     await testHelper.engine.contract.submitPrice(
+    //       TestAmounts.PRICE_50_CENT,
+    //       testHelper.whitelist
+    //     );
+    //   }
+    // );
+
+    // const actionStateAfterSuccess =
+    //   await testHelper.engine.contract.actionState.fetch();
+
+    // console.log('actionStateAfterSuccess', actionStateAfterSuccess);
+  });
+
+  it('should allow anyone to deposit funds into the oracle', async () => {
+    const oracleFundsBefore =
+      await testHelper.engine.contract.getAvailableOracleFunds();
+
+    console.log('oracleFunds', oracleFundsBefore.toString());
+
+    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+      await testHelper.engine.contract.depositOracleFunds(
+        TestAmounts.COLLATERAL_50_MINA
+      );
+    });
+
+    const oracleFundsAfterDeposit =
+      await testHelper.engine.contract.getAvailableOracleFunds();
+
+    expect(oracleFundsAfterDeposit.toString()).toEqual(
+      oracleFundsBefore.add(TestAmounts.COLLATERAL_50_MINA).toString()
+    );
+  });
+
+  it('should emit the oracle funds deposited event', async () => {
+    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+      await testHelper.engine.contract.depositOracleFunds(
+        TestAmounts.COLLATERAL_50_MINA
+      );
+    });
+
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('OracleFundsDeposited');
+
+    // @ts-ignore
+    expect(latestEvent.event.data.amount).toEqual(
+      TestAmounts.COLLATERAL_50_MINA
+    );
   });
 });

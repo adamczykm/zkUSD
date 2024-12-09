@@ -5,6 +5,8 @@ import { OracleWhitelist } from '../../types';
 describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
   const testHelper = new TestHelper();
   let whitelist: OracleWhitelist;
+  let previousWhitelistHash: Field;
+  let newWhitelistHash: Field;
 
   beforeAll(async () => {
     await testHelper.initChain();
@@ -27,6 +29,9 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     const newOracle = PrivateKey.random().toPublicKey();
     whitelist.addresses[currentWhitelist + 1] = newOracle;
 
+    previousWhitelistHash =
+      (await testHelper.engine.contract.oracleWhitelistHash.fetch()) as Field;
+
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
@@ -41,9 +46,23 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
       OracleWhitelist.toFields(whitelist)
     );
 
+    newWhitelistHash =
+      (await testHelper.engine.contract.oracleWhitelistHash.fetch()) as Field;
+
     expect(
       await testHelper.engine.contract.oracleWhitelistHash.fetch()
     ).toEqual(expectedWhitelistHash);
+  });
+
+  it('should emit the oracle whitelist update event', async () => {
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('OracleWhitelistUpdated');
+    // @ts-ignore
+    expect(latestEvent.event.data.newHash).toEqual(newWhitelistHash);
+    // @ts-ignore
+    expect(latestEvent.event.data.previousHash).toEqual(previousWhitelistHash);
   });
 
   it('should not allow updating the whitelist without the admin key', async () => {

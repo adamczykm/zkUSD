@@ -32,6 +32,22 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     expect(protocolData.oracleFlatFee).toEqual(newFee);
   });
 
+  it('should emit the oracle fee update event', async () => {
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('OracleFeeUpdated');
+
+    // @ts-ignore
+    expect(latestEvent.event.data.newFee).toEqual(
+      TestAmounts.COLLATERAL_2_MINA
+    );
+    // @ts-ignore
+    expect(latestEvent.event.data.previousFee).toEqual(
+      TestAmounts.COLLATERAL_1_MINA
+    );
+  });
+
   it('should not allow the fee to be changed without the admin key', async () => {
     const newFee = TestAmounts.COLLATERAL_1_MINA;
 

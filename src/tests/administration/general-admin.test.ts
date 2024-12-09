@@ -68,6 +68,19 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     expect(protocolData.admin).toEqual(newAdmin.publicKey);
   });
 
+  it('should emit the admin update event', async () => {
+    const contractEvents = await testHelper.engine.contract.fetchEvents();
+    const latestEvent = contractEvents[0];
+
+    expect(latestEvent.type).toEqual('AdminUpdated');
+    // @ts-ignore
+    expect(latestEvent.event.data.newAdmin).toEqual(newAdmin.publicKey);
+    // @ts-ignore
+    expect(latestEvent.event.data.previousAdmin).toEqual(
+      TestHelper.protocolAdminKeyPair.publicKey
+    );
+  });
+
   it('should allow the new admin key to make updates to the protocol vault', async () => {
     await testHelper.transaction(
       testHelper.agents.alice.account,
