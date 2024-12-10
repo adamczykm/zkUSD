@@ -19,20 +19,16 @@ import {
   UInt32,
   UInt64,
   Permissions,
-  assert,
   VerificationKey,
   Poseidon,
   TokenContract,
   AccountUpdateForest,
   Int64,
-  fetchAccount,
 } from 'o1js';
 import { ZkUsdVault } from './zkusd-vault.js';
 
 import {
   OracleWhitelist,
-  PriceFeedAction,
-  PriceState,
   ProtocolDataPacked,
   ProtocolData,
   VaultState,
@@ -41,6 +37,32 @@ import {
 } from './types.js';
 import { ZkUsdMasterOracle } from './zkusd-master-oracle.js';
 import { ZkUsdPriceTracker } from './zkusd-price-tracker.js';
+import {
+  PriceUpdateEvent,
+  FallbackPriceUpdateEvent,
+  OracleFundsDepositedEvent,
+  PriceSubmissionEvent,
+  EmergencyStopEvent,
+  EmergencyResumeEvent,
+  AdminUpdatedEvent,
+  VerificationKeyUpdatedEvent,
+  OracleWhitelistUpdatedEvent,
+  OracleFeeUpdated,
+  NewVaultEvent,
+  DepositCollateralEvent,
+  RedeemCollateralEvent,
+  MintZkUsdEvent,
+  BurnZkUsdEvent,
+  LiquidateEvent,
+} from './events.js';
+
+/**
+ * @title   zkUSD Engine contract
+ * @notice  This contract is the master contract used to govern the rules of interaction with the zkUSD system.
+ *          It uses a token account design model which installs user vaults on the token account of the engine. This
+ *          allows the engine to be the admin of the zkUSD token contract, while also managing the price state, interaction with the vaults,
+ *          and administrative functionality such as the oracle whitelist.
+ */
 
 // Errors
 export const ZkUsdEngineErrors = {
@@ -57,90 +79,6 @@ export const ZkUsdEngineErrors = {
     'Protocol fee is a percentage and must be less than or equal to 100',
   INSUFFICIENT_BALANCE: 'Insufficient balance for withdrawal',
 };
-
-// Event Definitions
-
-// Events
-export class NewVaultEvent extends Struct({
-  vaultAddress: PublicKey,
-}) {}
-
-export class DepositCollateralEvent extends Struct({
-  vaultAddress: PublicKey,
-  amountDeposited: UInt64,
-  vaultCollateralAmount: UInt64,
-  vaultDebtAmount: UInt64,
-}) {}
-
-export class RedeemCollateralEvent extends Struct({
-  vaultAddress: PublicKey,
-  amountRedeemed: UInt64,
-  vaultCollateralAmount: UInt64,
-  vaultDebtAmount: UInt64,
-  price: UInt64,
-}) {}
-
-export class MintZkUsdEvent extends Struct({
-  vaultAddress: PublicKey,
-  amountMinted: UInt64,
-  vaultCollateralAmount: UInt64,
-  vaultDebtAmount: UInt64,
-  price: UInt64,
-}) {}
-
-export class BurnZkUsdEvent extends Struct({
-  vaultAddress: PublicKey,
-  amountBurned: UInt64,
-  vaultCollateralAmount: UInt64,
-  vaultDebtAmount: UInt64,
-}) {}
-
-export class LiquidateEvent extends Struct({
-  vaultAddress: PublicKey,
-  liquidator: PublicKey,
-  vaultCollateralLiquidated: UInt64,
-  vaultDebtRepaid: UInt64,
-  price: UInt64,
-}) {}
-
-export class PriceUpdateEvent extends Struct({
-  newPrice: UInt64,
-}) {}
-
-export class FallbackPriceUpdateEvent extends Struct({
-  newPrice: UInt64,
-}) {}
-
-export class PriceSubmissionEvent extends Struct({
-  submitter: PublicKey,
-  price: UInt64,
-  oracleFee: UInt64,
-}) {}
-
-export class EmergencyStopEvent extends Struct({}) {}
-
-export class EmergencyResumeEvent extends Struct({}) {}
-
-export class AdminUpdatedEvent extends Struct({
-  previousAdmin: PublicKey,
-  newAdmin: PublicKey,
-}) {}
-
-export class VerificationKeyUpdatedEvent extends Struct({}) {}
-
-export class OracleWhitelistUpdatedEvent extends Struct({
-  previousHash: Field,
-  newHash: Field,
-}) {}
-
-export class OracleFeeUpdated extends Struct({
-  previousFee: UInt64,
-  newFee: UInt64,
-}) {}
-
-export class OracleFundsDepositedEvent extends Struct({
-  amount: UInt64,
-}) {}
 
 export interface ZkUsdEngineDeployProps extends Exclude<DeployArgs, undefined> {
   initialPrice: UInt64;
@@ -239,6 +177,10 @@ export class ZkUsdEngine
     throw Error(ZkUsdEngineErrors.UPDATES_BLOCKED);
   }
 
+  /**
+   * @notice The initialize method is necessary for setting up the various helper token accounts
+   *         that are used to track the state of the system.
+   */
   @method async initialize() {
     //Ensure admin key
     await this.ensureAdminSignature();
@@ -333,6 +275,10 @@ export class ZkUsdEngine
     oddOraclePriceTracker.account.permissions.set(permissions);
   }
 
+  /**
+   * @notice  Returns the total amount of collateral deposited into the engine
+   * @returns The total amount of collateral deposited into the engine
+   */
   @method.returns(UInt64)
   async getTotalDepositedCollateral(): Promise<UInt64> {
     const account = AccountUpdate.create(
@@ -343,6 +289,10 @@ export class ZkUsdEngine
     return balance;
   }
 
+  /**
+   * @notice  Returns the total amount of funds available to the oracle
+   * @returns The total amount of funds available to the oracle
+   */
   @method.returns(UInt64)
   async getAvailableOracleFunds(): Promise<UInt64> {
     const account = AccountUpdate.create(
@@ -846,6 +796,10 @@ export class ZkUsdEngine
     });
   }
 
+  /**
+   * @notice  Deposits funds into the oracle account
+   * @param   amount The amount of funds to deposit
+   */
   @method async depositOracleFunds(amount: UInt64) {
     //We track the funds in the token account of the engine address
     const oracleFundsTrackerUpdate = AccountUpdate.create(
@@ -1041,7 +995,6 @@ export class ZkUsdEngine
    * @notice  If the protcol is halted, this will fail, meaning that no actions can be taken from the vaults
    * @returns The price based on the current block
    */
-
   async getPrice(): Promise<UInt64> {
     //Preconditions
     const protocolData = ProtocolData.unpack(
@@ -1066,7 +1019,6 @@ export class ZkUsdEngine
    * @notice  This method is used to assert the interaction flag, this is used to ensure that the zkUSD token contract knows it is being called from the vault
    * @returns True if the flag is set
    */
-
   private assertInteractionFlag() {
     this.interactionFlag.requireEquals(Bool(true));
     this.interactionFlag.set(Bool(false));
@@ -1152,21 +1104,41 @@ export class ZkUsdEngine
     isWhitelisted.assertTrue(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED);
   }
 
+  //   FUNGIBLE TOKEN ADMIN FUNCTIONS
+
+  /**
+   * @notice  Returns true if the account update is valid
+   * @param   accountUpdate The account update
+   * @returns True if the account update is valid
+   */
   @method.returns(Bool)
   public async canMint(_accountUpdate: AccountUpdate) {
     return this.assertInteractionFlag();
   }
 
+  /**
+   * @notice  Returns true if the admin can change the admin
+   * @param   admin The admin
+   * @returns True if the admin can change the admin
+   */
   @method.returns(Bool)
   public async canChangeAdmin(_admin: PublicKey) {
     return Bool(false);
   }
 
+  /**
+   * @notice  Returns true if the admin can pause the token
+   * @returns True if the admin can pause the token
+   */
   @method.returns(Bool)
   public async canPause(): Promise<Bool> {
     return Bool(false);
   }
 
+  /**
+   * @notice  Returns true if the admin can resume the token
+   * @returns True if the admin can resume the token
+   */
   @method.returns(Bool)
   public async canResume(): Promise<Bool> {
     return Bool(false);

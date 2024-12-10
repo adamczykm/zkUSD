@@ -7,8 +7,7 @@ import {
   TokenId,
   UInt64,
 } from 'o1js';
-import { NewVaultEvent, ZkUsdEngineErrors } from '../../zkusd-engine.js';
-import { ZkUsdVault } from '../../zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
 import { TestHelper, TestAmounts } from '../test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';

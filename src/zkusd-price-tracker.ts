@@ -1,27 +1,22 @@
 import {
-  AccountUpdate,
-  Bool,
-  DeployArgs,
   method,
   Provable,
-  PublicKey,
   SmartContract,
   state,
   State,
-  Struct,
   UInt32,
-  Permissions,
   UInt64,
-  Field,
-  fetchAccount,
-  Mina,
 } from 'o1js';
-import {
-  OracleWhitelist,
-  PriceSubmission,
-  PriceSubmissionPacked,
-} from './types.js';
+import { PriceSubmission, PriceSubmissionPacked } from './types.js';
 import { ZkUsdEngine } from './zkusd-engine.js';
+
+/**
+ * @title   zkUSD Price Tracker contract
+ * @notice  This contract is used to track the prices of the zkUSD system.
+ *          Two versions of this are installed on the token account of the engine.
+ *          One is used for the even blocks and one is used for the odd blocks.
+ *          This allows us to avoid the concurrency issues that arise from L1 development.
+ */
 
 export class ZkUsdPriceTracker extends SmartContract {
   @state(PriceSubmissionPacked) oracleOne = State<PriceSubmissionPacked>();
@@ -33,6 +28,16 @@ export class ZkUsdPriceTracker extends SmartContract {
   @state(PriceSubmissionPacked) oracleSeven = State<PriceSubmissionPacked>();
   @state(PriceSubmissionPacked) oracleEight = State<PriceSubmissionPacked>();
 
+  /**
+   * @notice  Calculates the median price from submitted oracle prices
+   * @dev     The function follows these steps:
+   *          1. Pads the price array with fallback prices
+   *          2. Sorts all prices using bubble sort
+   *          3. Calculates the median price
+   * @param   fallbackPrice Used to pad the array if we have fewer incase oracles
+   *                        fail to submit a price
+   * @returns The calculated median price
+   */
   @method.returns(UInt64)
   async calculateMedianPrice(fallbackPrice: UInt64) {
     //Get the block number

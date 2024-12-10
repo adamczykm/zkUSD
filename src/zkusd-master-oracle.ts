@@ -10,6 +10,14 @@ import {
   UInt64,
 } from 'o1js';
 
+/**
+ * @title   zkUSD Master Oracle contract
+ * @notice  This contract is used to manage the fallback price of the zkUSD system.
+ *          It is installed on the token account of the engine. The fallback price is used
+ *          as a protocol safety net incase there is an issue with the oracle submissions.
+ *
+ */
+
 // Errors
 export const ZkUsdMasterOracleErrors = {
   AMOUNT_ZERO: 'Amount must be greater than zero',
