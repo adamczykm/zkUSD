@@ -144,10 +144,10 @@ export class TestHelper {
 
   static oddOraclePriceTrackerKeyPair = {
     privateKey: PrivateKey.fromBase58(
-      'EKEA2V5V2K1qwtdu4V4wP1amnR4kGyrrmUixJGeYGQn6YzRVxtbr'
+      'EKF3K7jmFwKdjnpSr4bQ9rYQ3Bc4yV53wr5Gz8v7YLqXArokT97Q'
     ),
     publicKey: PublicKey.fromBase58(
-      'B62qrwXWc95cWtnPY4sGmv2Uve8CNR2bpXXobtss83FSSm8xjvVWFLa'
+      'B62qqpWYnkG8AgYTDvtvxSJhAoJemHZJGPcVrTgGNKT5Kz9pQjMoysm'
     ),
   };
 

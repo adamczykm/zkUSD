@@ -22,9 +22,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   const getWriteTrackerAddress = () => {
-    return testHelper.Local.getNetworkState()
+    const isEven = testHelper.Local.getNetworkState()
       .blockchainLength.mod(2)
       .equals(UInt32.from(0))
+      .toBoolean();
+
+    return isEven
       ? ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
       : ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS;
   };
@@ -60,18 +63,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(
-      testHelper.oracles[oracleName],
-      async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_48_CENT,
-          testHelper.whitelist
-        );
-      },
-      {
-        printTx: true,
-      }
-    );
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_48_CENT,
+        testHelper.whitelist
+      );
+    });
 
     console.log(
       'blockchainLength',
@@ -92,6 +89,70 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const submission = PriceSubmission.unpack(priceSubmission!);
 
     expect(submission.price).toEqual(TestAmounts.PRICE_48_CENT);
+  });
+
+  it('should submit the price to the even price tracker on an even block', async () => {
+    testHelper.Local.setBlockchainLength(UInt32.from(2));
+
+    const whitelistedOracles = testHelper.whitelistedOracles;
+
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
+
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_52_CENT,
+        testHelper.whitelist
+      );
+    });
+
+    const trackerAddress = getWriteTrackerAddress();
+
+    expect(trackerAddress).toEqual(
+      ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
+    );
+
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
+    );
+
+    const priceSubmission = await tracker.oracleOne.fetch();
+
+    const submission = PriceSubmission.unpack(priceSubmission!);
+
+    expect(submission.price).toEqual(TestAmounts.PRICE_52_CENT);
+  });
+
+  it('should submit the price to the odd price tracker on an odd block', async () => {
+    testHelper.Local.setBlockchainLength(UInt32.from(1001));
+
+    const whitelistedOracles = testHelper.whitelistedOracles;
+
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
+
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_49_CENT,
+        testHelper.whitelist
+      );
+    });
+
+    const trackerAddress = getWriteTrackerAddress();
+
+    expect(trackerAddress).toEqual(
+      ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS
+    );
+
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
+    );
+
+    const priceSubmission = await tracker.oracleOne.fetch();
+
+    const submission = PriceSubmission.unpack(priceSubmission!);
+
+    expect(submission.price).toEqual(TestAmounts.PRICE_49_CENT);
   });
 
   it('should emit the price submission event', async () => {

@@ -18,7 +18,7 @@ import {
   assert,
   VerificationKey,
   Poseidon,
-  TokenContract,
+  TokenContractV2,
   AccountUpdateForest,
   Int64,
   fetchAccount,
@@ -147,7 +147,7 @@ export interface ZkUsdEngineDeployProps extends Exclude<DeployArgs, undefined> {
 }
 
 export class ZkUsdEngine
-  extends TokenContract
+  extends TokenContractV2
   implements FungibleTokenAdminBase
 {
   @state(UInt64) priceEvenBlock = State<UInt64>();
@@ -174,7 +174,7 @@ export class ZkUsdEngine
   );
 
   static ODD_ORACLE_PRICE_TRACKER_ADDRESS = PublicKey.fromBase58(
-    'B62qrwXWc95cWtnPY4sGmUve8CNR2bpXXobtss83FSSm8xjvVWFLa'
+    'B62qqpWYnkG8AgYTDvtvxSJhAoJemHZJGPcVrTgGNKT5Kz9pQjMoysm'
   );
 
   readonly events = {
