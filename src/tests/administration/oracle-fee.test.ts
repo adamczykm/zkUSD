@@ -90,10 +90,10 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     );
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
-    const oracle = testHelper.agents[oracleName].account;
+    const oracle = testHelper.oracles[oracleName];
 
     // Get oracle's initial balance
-    const oracleBalanceBefore = Mina.getBalance(oracle);
+    const oracleBalanceBefore = Mina.getBalance(oracle.publicKey);
 
     // Submit price from oracle
     await testHelper.transaction(oracle, async () => {
@@ -104,7 +104,7 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     });
 
     // Get oracle's balance after submission
-    const oracleBalanceAfter = Mina.getBalance(oracle);
+    const oracleBalanceAfter = Mina.getBalance(oracle.publicKey);
 
     const priceFeedOracleBalanceAfter = Mina.getBalance(
       testHelper.engine.publicKey

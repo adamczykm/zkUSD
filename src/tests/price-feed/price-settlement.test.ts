@@ -4,7 +4,7 @@ import { ZkUsdEngine } from '../../zkusd-engine';
 import { OracleWhitelist } from '../../types';
 import { ZkUsdMasterOracle } from '../../zkusd-master-oracle';
 
-describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
+describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   const testHelper = new TestHelper();
 
   beforeAll(async () => {
@@ -30,36 +30,28 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     expect(latestEvent.event.data.newPrice).toEqual(TestAmounts.PRICE_25_CENT);
   });
 
-  it('should settle the even price if we are on an odd block', async () => {
+  it('should eventually settle odd price, 3 blocks later, if we are on an odd block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(1));
     await testHelper.updateOraclePrice(TestAmounts.PRICE_50_CENT);
 
-    const evenPrice = await testHelper.engine.contract.priceEvenBlock.fetch();
+    const oddPrice = await testHelper.engine.contract.priceOddBlock.fetch();
 
-    expect(evenPrice?.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
+    expect(oddPrice?.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
   });
 
-  it('should settle the odd price if we are on an even block', async () => {
+  it('should eventually settle even price, 3 blocks later, if we are on an even block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(2));
     await testHelper.updateOraclePrice(TestAmounts.PRICE_52_CENT);
 
-    const oddPrice = await testHelper.engine.contract.priceOddBlock.fetch();
+    const evenPrice = await testHelper.engine.contract.priceEvenBlock.fetch();
 
-    expect(oddPrice?.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
+    expect(evenPrice?.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
   });
 
   it('should use the fallback price if oracles havent submitted the price', async () => {
     await testHelper.transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
-
-    const actionState = await testHelper.engine.contract.actionState.fetch();
-
-    const pendingActions = Mina.getActions(testHelper.engine.publicKey, {
-      fromActionState: actionState,
-    });
-
-    expect(pendingActions.length).toEqual(0);
 
     await testHelper.transaction(
       testHelper.deployer,
@@ -71,11 +63,6 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
       {
         extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
       }
-    );
-
-    const masterOracle = new ZkUsdMasterOracle(
-      ZkUsdEngine.MASTER_ORACLE_ADDRESS,
-      testHelper.engine.contract.deriveTokenId()
     );
 
     //Move the block forward
@@ -97,25 +84,43 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     expect(price.toString()).toEqual(TestAmounts.PRICE_2_USD.toString());
   });
 
-  it('should calculate correct median with 3 prices', async () => {
+  it('should calculate correct median', async () => {
     const prices = [
       TestAmounts.PRICE_48_CENT,
       TestAmounts.PRICE_50_CENT,
       TestAmounts.PRICE_52_CENT,
+      TestAmounts.PRICE_2_USD,
+      TestAmounts.PRICE_1_USD,
+      TestAmounts.PRICE_50_CENT,
+      TestAmounts.PRICE_52_CENT,
+      TestAmounts.PRICE_52_CENT,
     ];
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < prices.length; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
-      await testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            prices[i],
-            testHelper.whitelist
-          );
-        }
-      );
+      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+        await testHelper.engine.contract.submitPrice(
+          prices[i],
+          testHelper.whitelist
+        );
+      });
     }
+
+    //what should the median price be?
+    const sortedPrices = [...prices].sort(
+      (a, b) => Number(a.toString()) - Number(b.toString())
+    );
+
+    // For an even number of prices (8), take average of middle two values
+    const middleIndex = Math.floor(sortedPrices.length / 2);
+    const medianPrice = sortedPrices[middleIndex - 1]
+      .add(sortedPrices[middleIndex])
+      .div(2);
+
+    //move the blockchain forward
+    testHelper.Local.setBlockchainLength(
+      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    );
 
     await testHelper.transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
@@ -127,17 +132,10 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     const price = await testHelper.engine.contract.getPrice();
     // Should return middle price (50 cents)
-    expect(price.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
+    expect(price.toString()).toEqual(medianPrice.toString());
   });
 
-  it('should calculate correct median with 4 prices', async () => {
-    // Add one more oracle
-    const newOracleName = 'newOracle';
-    testHelper.createAgents([newOracleName]);
-    testHelper.whitelist.addresses[3] =
-      testHelper.agents[newOracleName].account;
-    testHelper.whitelistedOracles.set(newOracleName, 3);
-
+  it('should calculate correct median with 4 prices submitted', async () => {
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
@@ -159,40 +157,20 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     for (let i = 0; i < 4; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
-      await testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            prices[i],
-            testHelper.whitelist
-          );
-        }
-      );
+      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+        await testHelper.engine.contract.submitPrice(
+          prices[i],
+          testHelper.whitelist
+        );
+      });
     }
 
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.engine.contract.settlePriceUpdate();
-    });
-
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
-    );
-
-    const price = await testHelper.engine.contract.getPrice();
-    // Should return average of two middle prices (50 cents)
-    const expectedMedian = TestAmounts.PRICE_49_CENT.add(
-      TestAmounts.PRICE_51_CENT
-    ).div(UInt64.from(2));
-    expect(price.toString()).toEqual(expectedMedian.toString());
-  });
-
-  it('should use fallback price as third price when less than 3 prices submitted', async () => {
-    // Set fallback price to 1 USD
+    //update fallback price
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
-          TestAmounts.PRICE_1_USD
+          TestAmounts.PRICE_2_USD
         );
       },
       {
@@ -200,20 +178,9 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
       }
     );
 
-    // Submit 2 prices: 48 cents and 52 cents
-    const prices = [TestAmounts.PRICE_48_CENT, TestAmounts.PRICE_52_CENT];
-    for (let i = 0; i < 2; i++) {
-      const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
-      await testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            prices[i],
-            testHelper.whitelist
-          );
-        }
-      );
-    }
+    testHelper.Local.setBlockchainLength(
+      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    );
 
     await testHelper.transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
@@ -223,44 +190,27 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
       testHelper.Local.getNetworkState().blockchainLength.add(1)
     );
 
-    const price = await testHelper.engine.contract.getPrice();
-    // Should return 52 cents as median (from [48 cents, 52 cents, 1 USD])
-    expect(price.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
+    // Get the current price to verify median calculation
+    // We have 4 submitted prices: [48, 49, 51, 52] cents
+    // And fallback price of $2 will fill remaining 4 slots: [200, 200, 200, 200] cents
+    // So full sorted array is: [48, 49, 51, 52, 200, 200, 200, 200]
+    // Median is average of 4th and 5th elements (52 + 200)/2 = 126 cents
+    const priceBeforeSettlement = await testHelper.engine.contract.getPrice();
+    expect(priceBeforeSettlement.toString()).toEqual(
+      TestAmounts.PRICE_52_CENT.add(TestAmounts.PRICE_2_USD)
+        .div(UInt64.from(2))
+        .toString()
+    );
   });
 
   it('should handle maximum number of prices correctly', async () => {
-    const mxOracles = [];
-
-    // Create new addresses
-    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
-      const oracleName = `maxOracle${i}`;
-      const privateKey = PrivateKey.random();
-      mxOracles.push({
-        name: oracleName,
-        privateKey: privateKey,
-      });
-
-      // Fund each oracle with Mina
-      await testHelper.transaction(testHelper.deployer, async () => {
-        AccountUpdate.fundNewAccount(testHelper.deployer, 1);
-        let transfer = AccountUpdate.createSigned(testHelper.deployer);
-        transfer.send({
-          to: privateKey.toPublicKey(),
-          amount: TestAmounts.COLLATERAL_50_MINA,
-        });
-      });
-    }
-
-    // Create new whitelist with max participants
-    const newWhitelist: OracleWhitelist = {
-      addresses: mxOracles.map((oracle) => oracle.privateKey.toPublicKey()),
-    };
-
     // Update the whitelist
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.engine.contract.updateOracleWhitelist(newWhitelist);
+        await testHelper.engine.contract.updateOracleWhitelist(
+          testHelper.whitelist
+        );
       },
       {
         extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
@@ -268,16 +218,19 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     );
 
     // Submit prices in ascending order
-    for (let i = 0; i < mxOracles.length; i++) {
-      const oracle = mxOracles[i];
+    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
+      const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
       const price = UInt64.from((0.48 + i * 0.01) * 1e9); // Prices from 0.48 to 0.57 USD
-
+      const oracle = testHelper.oracles[oracleName];
       const tx = await Mina.transaction(
         {
-          sender: oracle.privateKey.toPublicKey(),
+          sender: oracle.publicKey,
         },
         async () => {
-          await testHelper.engine.contract.submitPrice(price, newWhitelist);
+          await testHelper.engine.contract.submitPrice(
+            price,
+            testHelper.whitelist
+          );
         }
       )
         .prove()
@@ -285,12 +238,10 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
         .send();
     }
 
-    const actionState = await testHelper.engine.contract.actionState.fetch();
-    const priceFeedActions = Mina.getActions(testHelper.engine.publicKey, {
-      fromActionState: actionState,
-    });
-
-    expect(priceFeedActions.length).toBe(ZkUsdEngine.MAX_PARTICIPANTS);
+    // Move block forward
+    testHelper.Local.setBlockchainLength(
+      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    );
 
     // Settle the actions
     await testHelper.transaction(testHelper.deployer, async () => {
@@ -303,8 +254,8 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
     );
 
     const price = await testHelper.engine.contract.getPrice();
-    // Should return average of two middle prices (0.525 USD for 10 participants)
-    const expectedMedian = UInt64.from(0.525 * 1e9); // 0.525 USD
+    // Should return average of two middle prices (0.515 USD for 8 participants)
+    const expectedMedian = UInt64.from(0.515 * 1e9); // 0.515 USD
     expect(price.toString()).toEqual(expectedMedian.toString());
   });
 });

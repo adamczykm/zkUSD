@@ -1,7 +1,6 @@
 import { TestHelper, TestAmounts } from '../test-helper';
 import { UInt64 } from 'o1js';
 import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
-import { FungibleToken } from 'mina-fungible-token';
 import { ZkUsdEngineErrors } from '../../zkusd-engine';
 
 describe('zkUSD Vault Mint Test Suite', () => {

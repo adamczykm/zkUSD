@@ -27,7 +27,7 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     const whitelist = testHelper.whitelist;
 
     const newOracle = PrivateKey.random().toPublicKey();
-    whitelist.addresses[currentWhitelist + 1] = newOracle;
+    whitelist.addresses[0] = newOracle;
 
     previousWhitelistHash =
       (await testHelper.engine.contract.oracleWhitelistHash.fetch()) as Field;
@@ -66,11 +66,10 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
   });
 
   it('should not allow updating the whitelist without the admin key', async () => {
-    const currentWhitelist = testHelper.whitelistedOracles.size;
     const whitelist = testHelper.whitelist;
 
     const newOracle = PrivateKey.random().toPublicKey();
-    whitelist.addresses[currentWhitelist + 1] = newOracle;
+    whitelist.addresses[0] = newOracle;
 
     await expect(
       testHelper.transaction(testHelper.deployer, async () => {
@@ -79,12 +78,14 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     ).rejects.toThrow(/Transaction verification failed/i);
   });
 
-  it('should not allow updating with a whitelist that has more than 10 addresses', async () => {
+  it('should not allow updating with a whitelist that has more than 8 addresses', async () => {
     const whitelist = testHelper.whitelist;
 
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 10; i++) {
       whitelist.addresses[i] = PrivateKey.random().toPublicKey();
     }
+
+    console.log(whitelist);
 
     await expect(
       testHelper.transaction(
@@ -96,7 +97,7 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
           extraSigners: [TestHelper.engineKeyPair.privateKey],
         }
       )
-    ).rejects.toThrow('Expected witnessed values of length 20, got 22.');
+    ).rejects.toThrow('Expected witnessed values of length 16, got 20.');
   });
 
   it('should not allow updating with an invalid whitelist', async () => {

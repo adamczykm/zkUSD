@@ -1,11 +1,12 @@
 import { AccountUpdate, Field, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
-import { OracleWhitelist, ProtocolData } from '../../types';
+import { OracleWhitelist, PriceSubmission, ProtocolData } from '../../types';
 import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine';
 import {
   ZkUsdMasterOracle,
   ZkUsdMasterOracleErrors,
 } from '../../zkusd-master-oracle';
+import { ZkUsdPriceTracker } from '../../zkusd-price-tracker';
 
 describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   const testHelper = new TestHelper();
@@ -19,6 +20,14 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     whitelistedOracles = testHelper.whitelistedOracles;
     testHelper.createAgents(['alice']);
   });
+
+  const getWriteTrackerAddress = () => {
+    return testHelper.Local.getNetworkState()
+      .blockchainLength.mod(2)
+      .equals(UInt32.from(0))
+      ? ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
+      : ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS;
+  };
 
   beforeEach(async () => {
     //reset the whitelist
@@ -52,21 +61,37 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(
-      testHelper.agents[oracleName].account,
+      testHelper.oracles[oracleName],
       async () => {
         await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
+          TestAmounts.PRICE_48_CENT,
           testHelper.whitelist
         );
+      },
+      {
+        printTx: true,
       }
     );
 
-    const priceFeedAction = Mina.getActions(testHelper.engine.publicKey);
+    console.log(
+      'blockchainLength',
+      testHelper.Local.getNetworkState().blockchainLength.toString()
+    );
 
-    const oracle1Address = testHelper.agents[oracleName].account.x.toString();
-    const addressInActionState = priceFeedAction[0].actions[0][0].toString();
+    const trackerAddress = getWriteTrackerAddress();
 
-    expect(oracle1Address).toEqual(addressInActionState);
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
+    );
+
+    const priceSubmission = await tracker.oracleOne.fetch();
+
+    console.log('priceSubmission', priceSubmission?.packedData.toString());
+
+    const submission = PriceSubmission.unpack(priceSubmission!);
+
+    expect(submission.price).toEqual(TestAmounts.PRICE_48_CENT);
   });
 
   it('should emit the price submission event', async () => {
@@ -74,15 +99,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(
-      testHelper.agents[oracleName].account,
-      async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
-          testHelper.whitelist
-        );
-      }
-    );
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_25_CENT,
+        testHelper.whitelist
+      );
+    });
 
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
@@ -92,7 +114,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     expect(latestEvent.type).toEqual('PriceSubmission');
     // @ts-ignore
     expect(latestEvent.event.data.submitter.toBase58()).toEqual(
-      testHelper.agents[oracleName].account.toBase58()
+      testHelper.oracles[oracleName].publicKey.toBase58()
     );
     // @ts-ignore
     expect(latestEvent.event.data.price).toEqual(TestAmounts.PRICE_25_CENT);
@@ -100,34 +122,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     expect(latestEvent.event.data.oracleFee).toEqual(
       TestAmounts.COLLATERAL_1_MINA
     );
-  });
-
-  it('should not allow a whitelisted address to submit a second price before settlement', async () => {
-    const whitelistedOracles = testHelper.whitelistedOracles;
-
-    const oracleName = Array.from(whitelistedOracles.keys())[0];
-
-    await testHelper.transaction(
-      testHelper.agents[oracleName].account,
-      async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
-          testHelper.whitelist
-        );
-      }
-    );
-
-    await expect(
-      testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            testHelper.whitelist
-          );
-        }
-      )
-    ).rejects.toThrow(ZkUsdEngineErrors.PENDING_ACTION_EXISTS);
   });
 
   it('should not allow a non-whitelisted address to submit a price', async () => {
@@ -160,162 +154,96 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await expect(
-      testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.ZERO,
-            testHelper.whitelist
-          );
-        }
-      )
+      testHelper.transaction(testHelper.oracles[oracleName], async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.ZERO,
+          testHelper.whitelist
+        );
+      })
     ).rejects.toThrow(ZkUsdEngineErrors.AMOUNT_ZERO);
   });
 
-  it('should allow multiple whitelisted oracles to submit prices', async () => {
+  it('should allow all the whitelisted oracles to submit prices', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleNames = Array.from(whitelistedOracles.keys());
 
     // Submit prices from all whitelisted oracles
     for (const oracleName of oracleNames) {
-      await testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            testHelper.whitelist
-          );
-        }
-      );
-    }
-
-    const priceFeedActions = Mina.getActions(testHelper.engine.publicKey, {
-      fromActionState: await testHelper.engine.contract.actionState.fetch(),
-    });
-
-    // Verify all submissions were recorded
-    expect(priceFeedActions.length).toBe(whitelistedOracles.size);
-  });
-
-  it('should allow a whitelisted oracle to submit a new price after settlement', async () => {
-    const whitelistedOracles = testHelper.whitelistedOracles;
-    const oracleName = Array.from(whitelistedOracles.keys())[0];
-
-    // Submit initial price
-    await testHelper.transaction(
-      testHelper.agents[oracleName].account,
-      async () => {
+      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.PRICE_25_CENT,
           testHelper.whitelist
         );
-      }
+      });
+    }
+
+    const trackerAddress = getWriteTrackerAddress();
+
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
     );
 
-    // Settle the price update
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.engine.contract.settlePriceUpdate();
-    });
+    const oracleOnePackedData = await tracker.oracleOne.fetch();
+    const oracleTwoPackedData = await tracker.oracleTwo.fetch();
+    const oracleThreePackedData = await tracker.oracleThree.fetch();
+    const oracleFourPackedData = await tracker.oracleFour.fetch();
+    const oracleFivePackedData = await tracker.oracleFive.fetch();
+    const oracleSixPackedData = await tracker.oracleSix.fetch();
+    const oracleSevenPackedData = await tracker.oracleSeven.fetch();
+    const oracleEightPackedData = await tracker.oracleEight.fetch();
 
-    // Submit new price after settlement
-    await testHelper.transaction(
-      testHelper.agents[oracleName].account,
-      async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_50_CENT,
-          testHelper.whitelist
-        );
-      }
+    const oracleOneSubmission = PriceSubmission.unpack(oracleOnePackedData!);
+    const oracleTwoSubmission = PriceSubmission.unpack(oracleTwoPackedData!);
+    const oracleThreeSubmission = PriceSubmission.unpack(
+      oracleThreePackedData!
+    );
+    const oracleFourSubmission = PriceSubmission.unpack(oracleFourPackedData!);
+    const oracleFiveSubmission = PriceSubmission.unpack(oracleFivePackedData!);
+    const oracleSixSubmission = PriceSubmission.unpack(oracleSixPackedData!);
+    const oracleSevenSubmission = PriceSubmission.unpack(
+      oracleSevenPackedData!
+    );
+    const oracleEightSubmission = PriceSubmission.unpack(
+      oracleEightPackedData!
     );
 
-    const actionState = await testHelper.engine.contract.actionState.fetch();
-    const priceFeedActions = Mina.getActions(testHelper.engine.publicKey, {
-      fromActionState: actionState,
-    });
-    expect(priceFeedActions[0].actions.length).toBe(1);
+    expect(oracleOneSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleTwoSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleThreeSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleFourSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleFiveSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleSixSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleSevenSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    expect(oracleEightSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
   });
 
-  it('should handle maximum number of oracle submissions', async () => {
-    const mxOracles = [];
+  it('should update the odd price tracker on an odd block', async () => {
+    testHelper.Local.setBlockchainLength(UInt32.from(1001));
 
-    //First lets create some new addresses
+    const whitelistedOracles = testHelper.whitelistedOracles;
+    const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
-      const oracleName = `maxOracle${i}`;
-      const privateKey = PrivateKey.random();
-      mxOracles.push({
-        name: oracleName,
-        privateKey: privateKey,
-      });
-
-      //transfer each oracle 50 mina
-
-      await testHelper.transaction(testHelper.deployer, async () => {
-        AccountUpdate.fundNewAccount(testHelper.deployer, 1);
-        let transfer = AccountUpdate.createSigned(testHelper.deployer);
-        transfer.send({
-          to: privateKey.toPublicKey(),
-          amount: TestAmounts.COLLATERAL_50_MINA,
-        });
-      });
-    }
-
-    //create the new whitelist
-    const newWhitelist: OracleWhitelist = {
-      addresses: mxOracles.map((oracle) => oracle.privateKey.toPublicKey()),
-    };
-
-    //update the whitelist
-    await testHelper.transaction(
-      testHelper.deployer,
-      async () => {
-        await testHelper.engine.contract.updateOracleWhitelist(newWhitelist);
-      },
-      {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
-      }
-    );
-
-    //submit prices from all the new oracles
-    for (const oracle of mxOracles) {
-      const tx = await Mina.transaction(
-        {
-          sender: oracle.privateKey.toPublicKey(),
-        },
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_48_CENT,
-            newWhitelist
-          );
-        }
-      )
-        .prove()
-        .sign([oracle.privateKey])
-        .send();
-    }
-
-    const actionState = await testHelper.engine.contract.actionState.fetch();
-
-    const priceFeedActions = Mina.getActions(testHelper.engine.publicKey, {
-      fromActionState: actionState,
+    // Submit prices from all whitelisted oracles
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_2_USD,
+        testHelper.whitelist
+      );
     });
 
-    expect(priceFeedActions.length).toBe(ZkUsdEngine.MAX_PARTICIPANTS);
+    const trackerAddress = ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS;
 
-    //settle the actions
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.engine.contract.settlePriceUpdate();
-    });
-
-    //move block forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
     );
 
-    //expect price to be 48 cent
-    const price = await testHelper.engine.contract.getPrice();
+    const priceSubmission = await tracker.oracleOne.fetch();
 
-    expect(price.toString()).toEqual(TestAmounts.PRICE_48_CENT.toString());
+    const submission = PriceSubmission.unpack(priceSubmission!);
+
+    expect(submission.price).toEqual(TestAmounts.PRICE_2_USD);
   });
 
   it('should allow the fallback price to be updated with the admin key', async () => {
@@ -450,10 +378,10 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
-    const oracle = testHelper.agents[oracleName].account;
+    const oracle = testHelper.oracles[oracleName];
 
     // Get oracle's initial balance
-    const oracleBalanceBefore = Mina.getBalance(oracle);
+    const oracleBalanceBefore = Mina.getBalance(oracle.publicKey);
 
     // Submit price from oracle
     await testHelper.transaction(oracle, async () => {
@@ -464,7 +392,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     });
 
     // Get oracle's balance after submission
-    const oracleBalanceAfter = Mina.getBalance(oracle);
+    const oracleBalanceAfter = Mina.getBalance(oracle.publicKey);
 
     const priceFeedOracleBalanceAfter = Mina.getBalance(
       testHelper.engine.publicKey
@@ -518,15 +446,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(
-      testHelper.agents[oracleName].account,
-      async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
-          testHelper.whitelist
-        );
-      }
-    );
+    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await testHelper.engine.contract.submitPrice(
+        TestAmounts.PRICE_25_CENT,
+        testHelper.whitelist
+      );
+    });
 
     const availableOracleFundsAfter =
       await testHelper.engine.contract.getAvailableOracleFunds();
@@ -547,77 +472,15 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       }
     );
 
-    //Settle the price update
-    await testHelper.transaction(testHelper.deployer, async () => {
-      await testHelper.engine.contract.settlePriceUpdate();
-    });
-
-    const actionState = await testHelper.engine.contract.actionState.fetch();
-
-    console.log('actionStateBeforeFailure', actionState);
-
-    const priceFeedActionsBeforeFailure = Mina.getActions(
-      testHelper.engine.publicKey,
-      {
-        fromActionState: actionState,
-      }
-    );
-
-    console.log('priceFeedActionsBeforeFailure', priceFeedActionsBeforeFailure);
-
     //Submit a new price - this should fail
     await expect(
-      testHelper.transaction(
-        testHelper.agents[oracleName].account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_50_CENT,
-            testHelper.whitelist
-          );
-        }
-      )
+      testHelper.transaction(testHelper.oracles[oracleName], async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_50_CENT,
+          testHelper.whitelist
+        );
+      })
     ).rejects.toThrow(/Overflow/i);
-
-    const actionStateAfterFailure =
-      await testHelper.engine.contract.actionState.fetch();
-
-    const priceFeedActionsAfterFailure = Mina.getActions(
-      testHelper.engine.publicKey,
-      {
-        fromActionState: actionStateAfterFailure,
-      }
-    );
-
-    console.log('priceFeedActionsAfterFailure', priceFeedActionsAfterFailure);
-
-    const actionStateAfter =
-      await testHelper.engine.contract.actionState.fetch();
-
-    console.log('actionStateAfter Failure', actionStateAfter);
-
-    //Deposit funds into the oracle
-
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.engine.contract.depositOracleFunds(
-        TestAmounts.COLLATERAL_50_MINA
-      );
-    });
-
-    // //Submit a new price - this should succeed
-    // await testHelper.transaction(
-    //   testHelper.agents[oracleName].account,
-    //   async () => {
-    //     await testHelper.engine.contract.submitPrice(
-    //       TestAmounts.PRICE_50_CENT,
-    //       testHelper.whitelist
-    //     );
-    //   }
-    // );
-
-    // const actionStateAfterSuccess =
-    //   await testHelper.engine.contract.actionState.fetch();
-
-    // console.log('actionStateAfterSuccess', actionStateAfterSuccess);
   });
 
   it('should allow anyone to deposit funds into the oracle', async () => {

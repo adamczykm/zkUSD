@@ -18,7 +18,7 @@ import {
   assert,
   VerificationKey,
   Poseidon,
-  TokenContractV2,
+  TokenContract,
   AccountUpdateForest,
   Int64,
   fetchAccount,
@@ -32,8 +32,11 @@ import {
   ProtocolDataPacked,
   ProtocolData,
   VaultState,
+  PriceSubmission,
+  PriceSubmissionPacked,
 } from './types';
 import { ZkUsdMasterOracle } from './zkusd-master-oracle';
+import { ZkUsdPriceTracker } from './zkusd-price-tracker';
 
 // Errors
 export const ZkUsdEngineErrors = {
@@ -144,21 +147,18 @@ export interface ZkUsdEngineDeployProps extends Exclude<DeployArgs, undefined> {
 }
 
 export class ZkUsdEngine
-  extends TokenContractV2
+  extends TokenContract
   implements FungibleTokenAdminBase
 {
   @state(UInt64) priceEvenBlock = State<UInt64>();
   @state(UInt64) priceOddBlock = State<UInt64>();
-  @state(Field) actionState = State<Field>();
   @state(Field) oracleWhitelistHash = State<Field>(); // Hash of the oracle whitelist
   @state(ProtocolDataPacked) protocolDataPacked = State<ProtocolDataPacked>();
   @state(Field) vaultVerificationKeyHash = State<Field>(); // Hash of the vault verification key
   @state(Bool) interactionFlag = State<Bool>(); // Flag to prevent reentrancy
 
-  // We will only ever have 10 trusted oracles
-  // We need at least 3 price submissions to calculate the median, otherwise we fail out
-  static MAX_PARTICIPANTS = 10;
-  static MIN_PRICE_SUBMISSIONS = 3;
+  // We will only ever have 8 trusted oracles
+  static MAX_PARTICIPANTS = 8;
 
   //We hardcode the token address for the zkUSD token
   static ZKUSD_TOKEN_ADDRESS = PublicKey.fromBase58(
@@ -169,8 +169,13 @@ export class ZkUsdEngine
     'B62qmApLja1zB4GwBLB9Xm1c6Fjc1PxgfCNa9z12wQorHUqZbaiKnym'
   );
 
-  // Reducer definition
-  reducer = Reducer({ actionType: PriceFeedAction });
+  static EVEN_ORACLE_PRICE_TRACKER_ADDRESS = PublicKey.fromBase58(
+    'B62qk5VcEhiXeUCzR7a6aPH7A3YLm86jeP4ffMarPt8Q6pMbGjCZDLU'
+  );
+
+  static ODD_ORACLE_PRICE_TRACKER_ADDRESS = PublicKey.fromBase58(
+    'B62qrwXWc95cWtnPY4sGmUve8CNR2bpXXobtss83FSSm8xjvVWFLa'
+  );
 
   readonly events = {
     PriceUpdate: PriceUpdateEvent,
@@ -207,7 +212,6 @@ export class ZkUsdEngine
       send: Permissions.proof(),
     });
 
-    this.actionState.set(Reducer.initialActionState);
     this.priceEvenBlock.set(args.initialPrice);
     this.priceOddBlock.set(args.initialPrice);
 
@@ -240,6 +244,7 @@ export class ZkUsdEngine
     permissions.send = Permissions.none();
     permissions.setPermissions = Permissions.impossible();
     au.account.permissions.set(permissions);
+    permissions.editState = Permissions.none();
 
     // //Set up the master oracle to track the oracle funds and manage the fallback price
     const masterOracle = AccountUpdate.createSigned(
@@ -270,6 +275,56 @@ export class ZkUsdEngine
 
     masterOracle.account.permissions.set(permissions);
     this.self.approve(masterOracle);
+
+    //Set up the oracle price trackers
+    const evenOraclePriceTracker = AccountUpdate.createSigned(
+      ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS,
+      this.deriveTokenId()
+    );
+
+    const oddOraclePriceTracker = AccountUpdate.createSigned(
+      ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS,
+      this.deriveTokenId()
+    );
+
+    const priceTrackerVerificationKey = new VerificationKey(
+      ZkUsdPriceTracker._verificationKey!
+    );
+
+    evenOraclePriceTracker.body.update.verificationKey = {
+      isSome: Bool(true),
+      value: priceTrackerVerificationKey,
+    };
+
+    oddOraclePriceTracker.body.update.verificationKey = {
+      isSome: Bool(true),
+      value: priceTrackerVerificationKey,
+    };
+
+    const evenPackedPriceSubmission = PriceSubmission.new(
+      this.priceEvenBlock.getAndRequireEquals(),
+      UInt32.from(this.network.blockchainLength.getAndRequireEquals())
+    ).pack();
+
+    const oddPackedPriceSubmission = PriceSubmission.new(
+      this.priceOddBlock.getAndRequireEquals(),
+      UInt32.from(this.network.blockchainLength.getAndRequireEquals())
+    ).pack();
+
+    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
+      evenOraclePriceTracker.body.update.appState[i].value =
+        evenPackedPriceSubmission.packedData;
+      evenOraclePriceTracker.body.update.appState[i].isSome = Bool(true);
+      oddOraclePriceTracker.body.update.appState[i].value =
+        oddPackedPriceSubmission.packedData;
+      oddOraclePriceTracker.body.update.appState[i].isSome = Bool(true);
+    }
+
+    evenOraclePriceTracker.account.isNew.getAndRequireEquals().assertTrue();
+    oddOraclePriceTracker.account.isNew.getAndRequireEquals().assertTrue();
+
+    evenOraclePriceTracker.account.permissions.set(permissions);
+    oddOraclePriceTracker.account.permissions.set(permissions);
   }
 
   @method.returns(UInt64)
@@ -308,7 +363,7 @@ export class ZkUsdEngine
       this.vaultVerificationKeyHash.getAndRequireEquals();
 
     //The sender is the owner of the vault
-    const owner = this.sender.getAndRequireSignatureV2();
+    const owner = this.sender.getAndRequireSignature();
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
@@ -409,7 +464,7 @@ export class ZkUsdEngine
 
     //Create the account update for the collateral deposit
     const collateralDeposit = AccountUpdate.createSigned(
-      this.sender.getUnconstrainedV2()
+      this.sender.getUnconstrained()
     );
 
     //Send the collateral to the engine contract
@@ -459,7 +514,7 @@ export class ZkUsdEngine
     const price = await this.getPrice();
 
     //Get the owner of the collateral
-    const owner = this.sender.getAndRequireSignatureV2();
+    const owner = this.sender.getAndRequireSignature();
 
     //Redeem the collateral
     const { collateralAmount, debtAmount } = await vault.redeemCollateral(
@@ -479,7 +534,7 @@ export class ZkUsdEngine
       this.address,
       this.deriveTokenId()
     );
-    totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount).negV2();
+    totalDepositedCollateral.balanceChange = Int64.fromUnsigned(amount).neg();
 
     //Emit the RedeemCollateral event
     this.emitEvent(
@@ -510,7 +565,7 @@ export class ZkUsdEngine
     const price = await this.getPrice();
 
     //Get the owner of the zkUSD
-    const owner = this.sender.getAndRequireSignatureV2();
+    const owner = this.sender.getAndRequireSignature();
 
     //Manage the debt in the vault
     const { collateralAmount, debtAmount } = await vault.mintZkUsd(
@@ -548,7 +603,7 @@ export class ZkUsdEngine
     const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the owner of the zkUSD
-    const owner = this.sender.getAndRequireSignatureV2();
+    const owner = this.sender.getAndRequireSignature();
 
     //Get the zkUSD token contract
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
@@ -586,7 +641,7 @@ export class ZkUsdEngine
     const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
 
     //Get the liquidator
-    const liquidator = this.sender.getAndRequireSignatureV2();
+    const liquidator = this.sender.getAndRequireSignature();
 
     //Get the price
     const price = await this.getPrice();
@@ -608,14 +663,14 @@ export class ZkUsdEngine
       this.deriveTokenId()
     );
     totalDepositedCollateral.balanceChange =
-      Int64.fromUnsigned(collateralAmount).negV2();
+      Int64.fromUnsigned(collateralAmount).neg();
 
     //Emit the Liquidate event
     this.emitEvent(
       'Liquidate',
       new LiquidateEvent({
         vaultAddress: vaultAddress,
-        liquidator: this.sender.getUnconstrainedV2(),
+        liquidator: this.sender.getUnconstrained(),
         vaultCollateralLiquidated: collateralAmount,
         vaultDebtRepaid: debtAmount,
         price: price,
@@ -790,7 +845,7 @@ export class ZkUsdEngine
 
     //Create the account update for the deposit
     const depositUpdate = AccountUpdate.createSigned(
-      this.sender.getUnconstrainedV2()
+      this.sender.getUnconstrained()
     );
 
     depositUpdate.send({
@@ -833,11 +888,14 @@ export class ZkUsdEngine
    * @param   whitelist The whitelist of authorized oracles
    */
   @method async submitPrice(price: UInt64, whitelist: OracleWhitelist) {
+    const { isOddBlock } = this.getBlockInfo();
     //We need to ensure the sender is the oracle in the whitelist
-    const submitter = this.sender.getAndRequireSignatureV2();
+    const submitter = this.sender.getAndRequireSignature();
     const protocolData = ProtocolData.unpack(
       this.protocolDataPacked.getAndRequireEquals()
     );
+    const blockchainLength =
+      this.network.blockchainLength.getAndRequireEquals();
 
     //Get the current oracle fee
     const oracleFee = protocolData.oracleFlatFee;
@@ -845,24 +903,46 @@ export class ZkUsdEngine
     //Ensure price is greater than zero
     price.greaterThan(UInt64.zero).assertTrue(ZkUsdEngineErrors.AMOUNT_ZERO);
 
+    const oraclePriceTrackerAddress = Provable.if(
+      isOddBlock,
+      ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS,
+      ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
+    );
+
     //Validate the sender is authorized to submit a price update
     await this.validateWhitelist(submitter, whitelist);
 
-    //Validate the sender does not already have a pending action in this "batch"
-    await this.validatePendingActions(submitter);
+    for (let i = 0; i < whitelist.addresses.length; i++) {
+      let isAtIndex: Bool = Provable.if(
+        submitter.equals(whitelist.addresses[i]),
+        Bool(true),
+        Bool(false)
+      );
 
-    //Create the action
-    const priceFeedAction = new PriceFeedAction({
-      address: submitter,
-      price,
-    });
+      let priceUpdate = AccountUpdate.createIf(
+        isAtIndex,
+        oraclePriceTrackerAddress,
+        this.deriveTokenId()
+      );
+
+      const submission = PriceSubmission.new(price, blockchainLength).pack();
+
+      priceUpdate.body.useFullCommitment = Bool(true);
+
+      priceUpdate.body.update.appState[i] = {
+        isSome: Bool(true),
+        value: PriceSubmissionPacked.toFields(submission)[0],
+      };
+
+      this.self.approve(priceUpdate);
+    }
 
     const oracleFundsTracker = AccountUpdate.create(
       ZkUsdEngine.MASTER_ORACLE_ADDRESS,
       this.deriveTokenId()
     );
 
-    oracleFundsTracker.balanceChange = Int64.fromUnsigned(oracleFee).negV2();
+    oracleFundsTracker.balanceChange = Int64.fromUnsigned(oracleFee).neg();
 
     this.self.approve(oracleFundsTracker);
 
@@ -873,9 +953,6 @@ export class ZkUsdEngine
 
     receiverUpdate.balance.addInPlace(oracleFee);
     this.balance.subInPlace(oracleFee);
-
-    //Dispatch the action
-    this.reducer.dispatch(priceFeedAction);
 
     // Add price submission event
     this.emitEvent(
@@ -900,8 +977,6 @@ export class ZkUsdEngine
   @method async settlePriceUpdate() {
     //Preconditions
     const { isOddBlock } = this.getBlockInfo();
-    let actionState = this.actionState.getAndRequireEquals();
-    Provable.log('Action state', actionState);
     const currentPrices = this.getAndRequireCurrentPrices();
 
     //Get the master oracle
@@ -913,53 +988,20 @@ export class ZkUsdEngine
     //Get the fallback price
     const fallbackPrice = await masterOracle.getFallbackPrice();
 
-    //Get the pending actions
-    let pendingActions = this.reducer.getActions({
-      fromActionState: actionState,
-    });
-
-    //Create an array of fallback prices
-    let priceArray = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(fallbackPrice);
-
-    //Create the initial state
-    let initialState = {
-      prices: priceArray,
-      count: UInt64.zero,
-    };
-
-    //Reduce the pending actions
-    let newState = this.reducer.reduce(
-      pendingActions,
-      PriceState,
-      (state: PriceState, action: PriceFeedAction) => {
-        let newPrices = state.prices.map((price, i) => {
-          let condition = state.count.equals(UInt64.from(i));
-          return Provable.if(condition, action.price, price);
-        });
-
-        let newCount = Provable.if(
-          state.count.lessThan(UInt64.from(ZkUsdEngine.MAX_PARTICIPANTS)),
-          state.count.add(1),
-          state.count
-        );
-
-        return {
-          prices: newPrices,
-          count: newCount,
-        };
-      },
-      initialState,
-      {
-        maxActionsPerUpdate: ZkUsdEngine.MAX_PARTICIPANTS,
-      }
+    //If we are on the odd block, we get the median price from the even price tracker
+    //Otherwise, we get the median price from the odd price tracker
+    const priceTrackerAddress = Provable.if(
+      isOddBlock,
+      ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS,
+      ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS
     );
 
-    //Calculate the median price
-    let medianPrice = Provable.if(
-      newState.count.greaterThan(UInt64.zero),
-      this.calculateMedian(newState, fallbackPrice),
-      fallbackPrice
+    const priceTracker = new ZkUsdPriceTracker(
+      priceTrackerAddress,
+      this.deriveTokenId()
     );
+
+    const medianPrice = await priceTracker.calculateMedianPrice(fallbackPrice);
 
     //Update the correct price based on the median price
     const { evenPrice, oddPrice } = this.updateBlockPrices(
@@ -970,9 +1012,6 @@ export class ZkUsdEngine
 
     this.priceEvenBlock.set(evenPrice);
     this.priceOddBlock.set(oddPrice);
-
-    //set the action state
-    this.actionState.set(pendingActions.hash);
 
     // Add price update event
     this.emitEvent(
@@ -1097,120 +1136,6 @@ export class ZkUsdEngine
     }
 
     isWhitelisted.assertTrue(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED);
-  }
-
-  /**
-   * @notice  Validates the sender does not already have a pending action in this "batch"
-   * @param   submitter The sender
-   */
-  private async validatePendingActions(submitter: PublicKey): Promise<void> {
-    //Precondition
-
-    // IMPORTANT: Is this going to be a problem? We are setting a precondition on the action state when we validate the pending actions
-    // then we are also going to be setting the action state in the settlePriceUpdate method which would invalidate the precondition.
-    // can we guarentee that the settlePriceUpdate will be processed last?
-    // If not, we might need to rethink this approach.
-    // For example: can we maintain different actions states for each block type - odd/even?
-    const actionState = this.actionState.getAndRequireEquals();
-
-    //Get the pending actions
-    const pendingActions = this.reducer.getActions({
-      fromActionState: actionState,
-    });
-
-    //Check if the sender has a pending action against
-    const hasPendingAction = this.reducer.reduce(
-      pendingActions,
-      Bool,
-      (state: Bool, action: PriceFeedAction) => {
-        return Provable.if(action.address.equals(submitter), Bool(true), state);
-      },
-      Bool(false)
-    );
-
-    //Ensure the sender does not have a pending action
-    hasPendingAction.assertFalse(ZkUsdEngineErrors.PENDING_ACTION_EXISTS);
-  }
-
-  /**
-   * @notice  Calculates the median price from submitted oracle prices
-   * @dev     The function follows these steps:
-   *          1. Pads the price array with fallback prices if we have fewer than 3 submissions
-   *          2. Sorts all prices using bubble sort
-   *          3. Calculates median based on the effective count:
-   *            - For odd counts: takes the middle value
-   *            - For even counts: averages the two middle values
-   * @param   priceState Contains the array of submitted prices and count of submissions
-   * @param   fallbackPrice Used to pad the array if we have fewer than 3 submissions
-   * @returns The calculated median price
-   */
-  private calculateMedian(
-    priceState: PriceState,
-    fallbackPrice: UInt64
-  ): UInt64 {
-    // Pad array with fallback prices for any unused slots
-    // If we have 2 submissions, the array will contain: [price1, price2, fallbackPrice, fallbackPrice, ...]
-    const paddedPrices = priceState.prices.map((price, i) => {
-      return Provable.if(
-        UInt64.from(i).lessThan(priceState.count),
-        price,
-        fallbackPrice
-      );
-    });
-
-    // If we have fewer than 3 submissions, use 3 as the effective count
-    // This ensures we always calculate median using at least 3 values
-    const effectiveCount = Provable.if(
-      priceState.count.lessThan(UInt64.from(3)),
-      UInt64.from(3),
-      priceState.count
-    );
-
-    // Sort prices using bubble sort
-    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS - 1; i++) {
-      for (let j = 0; j < ZkUsdEngine.MAX_PARTICIPANTS - i - 1; j++) {
-        let shouldSwap = paddedPrices[j].greaterThan(paddedPrices[j + 1]);
-        let temp = Provable.if(
-          shouldSwap,
-          paddedPrices[j],
-          paddedPrices[j + 1]
-        );
-        paddedPrices[j] = Provable.if(
-          shouldSwap,
-          paddedPrices[j + 1],
-          paddedPrices[j]
-        );
-        paddedPrices[j + 1] = temp;
-      }
-    }
-
-    // Create conditions for each possible count (3 through MAX_PARTICIPANTS)
-    // We'll use these to select the correct median calculation
-    const conditions = [];
-    for (let i = 3; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
-      conditions.push(effectiveCount.equals(UInt64.from(i)));
-    }
-
-    // Calculate potential median values for each possible count
-    // For even counts: average of two middle values
-    // For odd counts: middle value
-    const medianValues = [];
-    for (let i = 3; i <= ZkUsdEngine.MAX_PARTICIPANTS; i++) {
-      if (i % 2 === 0) {
-        let middleIndex = i / 2;
-        medianValues.push(
-          paddedPrices[middleIndex - 1]
-            .add(paddedPrices[middleIndex])
-            .div(UInt64.from(2))
-        );
-      } else {
-        let middleIndex = (i - 1) / 2;
-        medianValues.push(paddedPrices[middleIndex]);
-      }
-    }
-
-    // Select the correct median value based on our effective count
-    return Provable.switch(conditions, UInt64, medianValues);
   }
 
   @method.returns(Bool)

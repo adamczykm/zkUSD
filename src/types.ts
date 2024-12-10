@@ -10,13 +10,46 @@ export class PriceState extends Struct({
   count: UInt64,
 }) {}
 
+export class PriceSubmissionPacked extends Struct({
+  packedData: Field,
+}) {}
+
+export class PriceSubmission extends Struct({
+  price: UInt64,
+  blockNumber: UInt32,
+}) {
+  static new(price?: UInt64, blockNumber?: UInt32): PriceSubmission {
+    return new PriceSubmission({
+      price: price ?? UInt64.zero,
+      blockNumber: blockNumber ?? UInt32.zero,
+    });
+  }
+  pack(): PriceSubmissionPacked {
+    return new PriceSubmissionPacked({
+      packedData: Field.fromBits([
+        ...this.price.value.toBits(64),
+        ...this.blockNumber.value.toBits(32),
+      ]),
+    });
+  }
+
+  static unpack(packed: PriceSubmissionPacked): PriceSubmission {
+    const bits = packed.packedData.toBits(128);
+    const price = UInt64.Unsafe.fromField(Field.fromBits(bits.slice(0, 64)));
+    const blockNumber = UInt32.Unsafe.fromField(
+      Field.fromBits(bits.slice(64, 96))
+    );
+    return new PriceSubmission({ price, blockNumber });
+  }
+}
+
 export class ProtocolDataPacked extends Struct({
   adminX: Field,
   packedData: Field,
 }) {}
 
 export class OracleWhitelist extends Struct({
-  addresses: Provable.Array(PublicKey, 10),
+  addresses: Provable.Array(PublicKey, 8),
 }) {}
 
 export class ProtocolData extends Struct({

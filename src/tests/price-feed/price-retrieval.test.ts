@@ -1,7 +1,7 @@
 import { UInt32 } from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper';
 
-describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
+describe('zkUSD Price Feed Oracle Price Retrieval Test Suite', () => {
   const testHelper = new TestHelper();
 
   beforeAll(async () => {
