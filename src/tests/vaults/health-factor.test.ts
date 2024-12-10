@@ -1,14 +1,16 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { UInt64 } from 'o1js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
-    await testHelper.deployVaults(['alice']);
+    testHelper.createAgents(['alice', 'bob']);
+    await testHelper.createVaults(['alice', 'bob']);
   });
 
   describe('Health Factor Calculations', () => {
@@ -26,7 +28,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1 MINA * $1 = $1 collateral value
       // $1 collateral / ($1 debt * 150%) = 0.66 = 66 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(66n);
+      assert.strictEqual(healthFactor?.toBigInt(), 66n);
     });
 
     it('should calculate health factor of 133 for 2:1 collateral to debt ratio at $1 price', () => {
@@ -43,7 +45,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 2 MINA * $1 = $2 collateral value
       // $2 collateral / ($1 debt * 150%) = 1.33 = 133 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(133n);
+      assert.strictEqual(healthFactor?.toBigInt(), 133n);
     });
 
     it('should calculate health factor of 33 for 1:2 collateral to debt ratio at $1 price', () => {
@@ -60,7 +62,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1 MINA * $1 = $1 collateral value
       // $1 collateral / ($2 debt * 150%) = 0.33 = 33 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(33n);
+      assert.strictEqual(healthFactor?.toBigInt(), 33n);
     });
 
     it('should calculate health factor of 133 for 1:1 collateral to debt ratio at $2 price', () => {
@@ -77,7 +79,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1 MINA * $2 = $2 collateral value
       // $2 collateral / ($1 debt * 150%) = 1.33 = 133 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(133n);
+      assert.strictEqual(healthFactor?.toBigInt(), 133n);
     });
 
     it('should calculate health factor of 33 for 1:1 collateral to debt ratio at $0.50 price', () => {
@@ -94,7 +96,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1 MINA * $0.50 = $0.50 collateral value
       // $0.50 collateral / ($1 debt * 150%) = 0.33 = 33 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(33n);
+      assert.strictEqual(healthFactor?.toBigInt(), 33n);
     });
 
     it('should return max UInt64 value when debt is zero', () => {
@@ -109,7 +111,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
           price
         );
 
-      expect(healthFactor?.toBigInt()).toBe(UInt64.MAXINT().toBigInt());
+      assert.strictEqual(healthFactor?.toBigInt(), UInt64.MAXINT().toBigInt());
     });
 
     it('should calculate health factor of 666 for large numbers', () => {
@@ -126,7 +128,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1000 MINA * $1 = $1000 collateral value
       // $1000 collateral / ($100 debt * 150%) = 6.66 = 666 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(666n);
+      assert.strictEqual(healthFactor?.toBigInt(), 666n);
     });
 
     it('should calculate health factor of 66 for small numbers', () => {
@@ -143,7 +145,7 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 0.1 MINA * $1 = $0.1 collateral value
       // $0.1 collateral / ($0.1 debt * 150%) = 0.66 = 66 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(66n);
+      assert.strictEqual(healthFactor?.toBigInt(), 66n);
     });
 
     it('should calculate consistent health factors across different decimal places', () => {
@@ -169,9 +171,9 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
       );
 
       // All should be 66 as they have the same ratio
-      expect(hf1?.toBigInt()).toBe(66n);
-      expect(hf2?.toBigInt()).toBe(66n);
-      expect(hf3?.toBigInt()).toBe(66n);
+      assert.strictEqual(hf1?.toBigInt(), 66n);
+      assert.strictEqual(hf2?.toBigInt(), 66n);
+      assert.strictEqual(hf3?.toBigInt(), 66n);
     });
 
     it('should calculate health factor of 100 at exactly 150% collateralization', () => {
@@ -188,17 +190,20 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
 
       // 1.5 MINA * $1 = $1.5 collateral value
       // $1.5 collateral / ($1 debt * 150%) = 1.00 = 100 (after scaling)
-      expect(healthFactor?.toBigInt()).toBe(100n);
+      assert.strictEqual(healthFactor?.toBigInt(), 100n);
     });
+
     it('should return the correct health factor for the vault', async () => {
       const collateral =
         await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
       const debt =
         await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
-      const price = await testHelper.priceFeedOracle.contract.getPrice();
+      const price = await testHelper.engine.contract.getPrice();
 
       const healthFactor =
-        await testHelper.agents.alice.vault?.contract.getHealthFactor();
+        await testHelper.engine.contract.getVaultHealthFactor(
+          testHelper.agents.alice.vault!.publicKey
+        );
 
       const rawHealthFactor =
         testHelper.agents.alice.vault?.contract.calculateHealthFactor(
@@ -206,7 +211,15 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
           debt!,
           price
         );
-      expect(healthFactor?.toBigInt()).toBe(rawHealthFactor?.toBigInt());
+      assert.strictEqual(healthFactor?.toBigInt(), rawHealthFactor?.toBigInt());
+    });
+
+    it('should return UInt64.MAXINT() when vault has no debt', async () => {
+      const healthFactor =
+        await testHelper.engine.contract.getVaultHealthFactor(
+          testHelper.agents.bob.vault!.publicKey
+        );
+      assert.strictEqual(healthFactor.toBigInt(), UInt64.MAXINT().toBigInt());
     });
   });
 });

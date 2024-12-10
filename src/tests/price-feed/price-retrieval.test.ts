@@ -1,10 +1,12 @@
 import { UInt32 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
-describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
+describe('zkUSD Price Feed Oracle Price Retrieval Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
@@ -19,9 +21,9 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     testHelper.Local.setBlockchainLength(UInt32.from(4));
 
-    const price = await testHelper.priceFeedOracle.contract.getPrice();
+    const price = await testHelper.engine.contract.getPrice();
 
-    expect(price.toString()).toEqual(TestAmounts.PRICE_48_CENT.toString());
+    assert.strictEqual(price.toString(), TestAmounts.PRICE_48_CENT.toString());
   });
 
   it('should retrieve the odd price if we are on an odd block', async () => {
@@ -33,8 +35,8 @@ describe('zkUSD Price Feed Oracle Price Reducer Test Suite', () => {
 
     testHelper.Local.setBlockchainLength(UInt32.from(4));
 
-    const price = await testHelper.priceFeedOracle.contract.getPrice();
+    const price = await testHelper.engine.contract.getPrice();
 
-    expect(price.toString()).toEqual(TestAmounts.PRICE_48_CENT.toString());
+    assert.strictEqual(price.toString(), TestAmounts.PRICE_48_CENT.toString());
   });
 });
