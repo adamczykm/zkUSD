@@ -7,20 +7,21 @@ import {
   TokenId,
   UInt64,
 } from 'o1js';
-import { NewVaultEvent, ZkUsdEngineErrors } from '../../zkusd-engine';
-import { ZkUsdVault } from '../../zkusd-vault';
-import { TestHelper, TestAmounts } from '../test-helper';
+import { NewVaultEvent, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { ZkUsdVault } from '../../zkusd-vault.js';
+import { TestHelper, TestAmounts } from '../test-helper.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Deployment Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie', 'david', 'eve']);
 
     const contractEvents = await testHelper.engine.contract.fetchEvents();
-
     console.log('Contract events after deployment', contractEvents);
   });
 
@@ -32,23 +33,24 @@ describe('zkUSD Deployment Test Suite', () => {
       testHelper.engine.contract.deriveTokenId()
     );
 
-    expect(aliceVault).not.toBeNull();
+    assert.notStrictEqual(aliceVault, null);
   });
 
   it('should emit the NewVault event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('NewVault');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'NewVault');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
   });
 
   it('should fail to deploy the same vault twice', async () => {
-    await expect(
-      testHelper.transaction(
+    await assert.rejects(async () => {
+      await testHelper.transaction(
         testHelper.agents.alice.account,
         async () => {
           await testHelper.engine.contract.createVault(
@@ -58,8 +60,8 @@ describe('zkUSD Deployment Test Suite', () => {
         {
           extraSigners: [testHelper.agents.alice.vault!.privateKey],
         }
-      )
-    ).rejects.toThrow(ZkUsdEngineErrors.VAULT_EXISTS);
+      );
+    }, new RegExp(ZkUsdEngineErrors.VAULT_EXISTS));
   });
 
   it('should create a new vault vault with empty state', async () => {
@@ -69,8 +71,8 @@ describe('zkUSD Deployment Test Suite', () => {
       await aliceVault?.contract.collateralAmount.fetch();
     const debtAmount = await aliceVault?.contract.debtAmount.fetch();
 
-    expect(collateralAmount).toEqual(TestAmounts.ZERO);
-    expect(debtAmount).toEqual(TestAmounts.ZERO);
+    assert.deepStrictEqual(collateralAmount, TestAmounts.ZERO);
+    assert.deepStrictEqual(debtAmount, TestAmounts.ZERO);
   });
 
   it('should create a new vault vault with the correct owner', async () => {
@@ -78,7 +80,8 @@ describe('zkUSD Deployment Test Suite', () => {
 
     const owner = await aliceVault?.contract.owner.fetch();
 
-    expect(owner?.toBase58()).toEqual(
+    assert.strictEqual(
+      owner?.toBase58(),
       testHelper.agents.alice.account.toBase58()
     );
   });
@@ -103,9 +106,9 @@ describe('zkUSD Deployment Test Suite', () => {
       testHelper.engine.contract.deriveTokenId()
     );
 
-    expect(bobVault).not.toBeNull();
-    expect(charlieVault).not.toBeNull();
-    expect(davidVault).not.toBeNull();
-    expect(eveVault).not.toBeNull();
+    assert.notStrictEqual(bobVault, null);
+    assert.notStrictEqual(charlieVault, null);
+    assert.notStrictEqual(davidVault, null);
+    assert.notStrictEqual(eveVault, null);
   });
 });

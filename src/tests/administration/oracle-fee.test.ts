@@ -1,11 +1,13 @@
 import { AccountUpdate, Field, Mina, PrivateKey, UInt32 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
-import { ProtocolData } from '../../types';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { ProtocolData } from '../../types.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Protocol Oracle Fee Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
@@ -29,21 +31,23 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
 
     const protocolData = ProtocolData.unpack(packedData!);
 
-    expect(protocolData.oracleFlatFee).toEqual(newFee);
+    assert.deepStrictEqual(protocolData.oracleFlatFee, newFee);
   });
 
   it('should emit the oracle fee update event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('OracleFeeUpdated');
+    assert.strictEqual(latestEvent.type, 'OracleFeeUpdated');
 
-    // @ts-ignore
-    expect(latestEvent.event.data.newFee).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.newFee,
       TestAmounts.COLLATERAL_2_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.previousFee).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.previousFee,
       TestAmounts.COLLATERAL_1_MINA
     );
   });
@@ -51,18 +55,21 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
   it('should not allow the fee to be changed without the admin key', async () => {
     const newFee = TestAmounts.COLLATERAL_1_MINA;
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.updateOracleFee(newFee);
-      })
-    ).rejects.toThrow(/Transaction verification failed/i);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.updateOracleFee(newFee);
+        }
+      );
+    }, /Transaction verification failed/i);
   });
 
   it('should not allow the private key to manually send funds from the engine', async () => {
     const oracleBalanceBefore = Mina.getBalance(testHelper.engine.publicKey);
 
-    await expect(
-      testHelper.transaction(
+    await assert.rejects(async () => {
+      await testHelper.transaction(
         testHelper.agents.alice.account,
         async () => {
           const sendUpdate = AccountUpdate.create(testHelper.engine.publicKey);
@@ -74,8 +81,8 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
         {
           extraSigners: [TestHelper.engineKeyPair.privateKey],
         }
-      )
-    ).rejects.toThrow(/Update_not_permitted_balance/i);
+      );
+    }, /Update_not_permitted_balance/i);
   });
 
   it('should pay out the oracle fee correctly', async () => {
@@ -111,12 +118,14 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     );
 
     // Verify oracle received the fee
-    expect(oracleBalanceAfter.toString()).toBe(
+    assert.strictEqual(
+      oracleBalanceAfter.toString(),
       oracleBalanceBefore.add(oracleFee).toString()
     );
 
-    expect(
-      priceFeedOracleBalanceBefore.sub(priceFeedOracleBalanceAfter)
-    ).toEqual(oracleFee);
+    assert.deepStrictEqual(
+      priceFeedOracleBalanceBefore.sub(priceFeedOracleBalanceAfter),
+      oracleFee
+    );
   });
 });

@@ -1,12 +1,14 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
-import { ZkUsdEngineErrors } from '../../zkusd-engine';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Mint Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob']);
@@ -38,29 +40,33 @@ describe('zkUSD Vault Mint Test Suite', () => {
     const debtAmount =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
 
-    expect(debtAmount).toEqual(TestAmounts.DEBT_5_ZKUSD);
-    expect(aliceBalance).toEqual(TestAmounts.DEBT_5_ZKUSD);
+    assert.deepStrictEqual(debtAmount, TestAmounts.DEBT_5_ZKUSD);
+    assert.deepStrictEqual(aliceBalance, TestAmounts.DEBT_5_ZKUSD);
   });
 
   it('should emit the MintZkUsd event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('MintZkUsd');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'MintZkUsd');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.amountMinted).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.amountMinted,
       TestAmounts.DEBT_5_ZKUSD
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultCollateralAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultCollateralAmount,
       TestAmounts.COLLATERAL_100_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultDebtAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultDebtAmount,
       TestAmounts.DEBT_5_ZKUSD
     );
   });
@@ -84,55 +90,84 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     const finalDebt =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
-    expect(finalDebt).toEqual(
+    assert.deepStrictEqual(
+      finalDebt,
       initialDebt?.add(TestAmounts.DEBT_1_ZKUSD.mul(3))
     );
   });
 
   it('should fail if mint amount is zero', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.ZERO
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.engine.contract.mintZkUsd(
+              testHelper.agents.alice.vault!.publicKey,
+              TestAmounts.ZERO
+            );
+          }
         );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_ZERO);
+      },
+      {
+        message: ZkUsdVaultErrors.AMOUNT_ZERO,
+      }
+    );
   });
 
   it('should fail if mint amount is negative', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          UInt64.from(-1)
-        );
-      })
-    ).rejects.toThrow();
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            UInt64.from(-1)
+          );
+        }
+      );
+    });
   });
 
   it('should fail if the minter is not the owner of the vault', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_5_ZKUSD
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.bob.account,
+          async () => {
+            await testHelper.engine.contract.mintZkUsd(
+              testHelper.agents.alice.vault!.publicKey,
+              TestAmounts.DEBT_5_ZKUSD
+            );
+          }
         );
-      })
-    ).rejects.toThrow(/Field.assertEquals()/i);
+      },
+      (err: any) => {
+        assert.match(err.message, /Field.assertEquals()/i);
+        return true;
+      }
+    );
   });
 
   it('should fail if the health factor is too low', async () => {
     const LARGE_ZKUSD_AMOUNT = UInt64.from(1000e9); // Very large amount to ensure health factor violation
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          LARGE_ZKUSD_AMOUNT
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.engine.contract.mintZkUsd(
+              testHelper.agents.alice.vault!.publicKey,
+              LARGE_ZKUSD_AMOUNT
+            );
+          }
         );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW);
+      },
+      {
+        message: ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW,
+      }
+    );
   });
 
   it('should maintain correct health factor after multiple mint operations', async () => {
@@ -172,33 +207,57 @@ describe('zkUSD Vault Mint Test Suite', () => {
         await testHelper.engine.contract.getPrice()
       );
 
-    expect(
-      finalHealthFactor!.greaterThanOrEqual(ZkUsdVault.MIN_HEALTH_FACTOR)
-    ).toBeTruthy();
+    assert.strictEqual(
+      finalHealthFactor!
+        .greaterThanOrEqual(ZkUsdVault.MIN_HEALTH_FACTOR)
+        .toBoolean(),
+      true
+    );
   });
 
   it('should not allow minting from calling the token contract directly', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.token.contract.mint(
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
           testHelper.agents.alice.account,
-          TestAmounts.DEBT_5_ZKUSD
+          async () => {
+            await testHelper.token.contract.mint(
+              testHelper.agents.alice.account,
+              TestAmounts.DEBT_5_ZKUSD
+            );
+          }
         );
-      })
-    ).rejects.toThrow(/Account_app_state_precondition_unsatisfied/i);
+      },
+      (err: any) => {
+        assert.match(
+          err.message,
+          /Account_app_state_precondition_unsatisfied/i
+        );
+        return true;
+      }
+    );
   });
 
   it('Should fail if the engine is halted', async () => {
     await testHelper.stopTheProtocol();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_5_ZKUSD
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.engine.contract.mintZkUsd(
+              testHelper.agents.alice.vault!.publicKey,
+              TestAmounts.DEBT_5_ZKUSD
+            );
+          }
         );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.EMERGENCY_HALT);
+      },
+      (err: any) => {
+        assert.match(err.message, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
+        return true;
+      }
+    );
   });
 
   it('Should allow minting if the price feed is resumed', async () => {

@@ -1,12 +1,14 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { AccountUpdate, Field, Mina, UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
-import { ZkUsdEngineErrors } from '../../zkusd-engine';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Redeem Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie', 'rewards']);
@@ -62,10 +64,12 @@ describe('zkUSD Vault Redeem Test Suite', () => {
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
     const aliceBalanceAfter = Mina.getBalance(testHelper.agents.alice.account);
 
-    expect(finalCollateral).toEqual(
+    assert.deepStrictEqual(
+      finalCollateral,
       initialCollateral?.sub(TestAmounts.COLLATERAL_1_MINA)
     );
-    expect(aliceBalanceAfter).toEqual(
+    assert.deepStrictEqual(
+      aliceBalanceAfter,
       aliceBalanceBefore.add(TestAmounts.COLLATERAL_1_MINA)
     );
   });
@@ -74,21 +78,25 @@ describe('zkUSD Vault Redeem Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('RedeemCollateral');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'RedeemCollateral');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.amountRedeemed).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.amountRedeemed,
       TestAmounts.COLLATERAL_1_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultCollateralAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultCollateralAmount,
       TestAmounts.COLLATERAL_100_MINA.sub(TestAmounts.COLLATERAL_1_MINA)
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultDebtAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultDebtAmount,
       TestAmounts.DEBT_5_ZKUSD
     );
   });
@@ -96,68 +104,95 @@ describe('zkUSD Vault Redeem Test Suite', () => {
   it('should fail if the amount redeemed is zero', async () => {
     const aliceBalanceBefore = Mina.getBalance(testHelper.agents.alice.account);
 
-    await expect(redeemCollateral(TestAmounts.ZERO)).rejects.toThrow(
-      ZkUsdVaultErrors.AMOUNT_ZERO
+    await assert.rejects(
+      async () => {
+        await redeemCollateral(TestAmounts.ZERO);
+      },
+      {
+        message: ZkUsdVaultErrors.AMOUNT_ZERO,
+      }
     );
 
     const aliceBalanceAfter = Mina.getBalance(testHelper.agents.alice.account);
-
-    expect(aliceBalanceAfter).toEqual(aliceBalanceBefore);
+    assert.deepStrictEqual(aliceBalanceAfter, aliceBalanceBefore);
   });
 
   it('should fail if the user tries to send Mina from the engine without proof', async () => {
     const totalDepositedCollateral =
       await testHelper.engine.contract.getTotalDepositedCollateral();
 
-    await expect(
-      testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          let au = AccountUpdate.createSigned(testHelper.engine.publicKey);
-          au.send({
-            to: testHelper.agents.alice.account,
-            amount: totalDepositedCollateral,
-          });
-        },
-        {
-          extraSigners: [testHelper.engine.privateKey],
-        }
-      )
-    ).rejects.toThrow(/Update_not_permitted_balance/i);
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            let au = AccountUpdate.createSigned(testHelper.engine.publicKey);
+            au.send({
+              to: testHelper.agents.alice.account,
+              amount: totalDepositedCollateral,
+            });
+          },
+          {
+            extraSigners: [testHelper.engine.privateKey],
+          }
+        );
+      },
+      (err: any) => {
+        assert.match(err.message, /Update_not_permitted_balance/i);
+        return true;
+      }
+    );
   });
 
   it('should fail if the redeemer is not the owner', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.redeemCollateral(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.COLLATERAL_1_MINA
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.bob.account,
+          async () => {
+            await testHelper.engine.contract.redeemCollateral(
+              testHelper.agents.alice.vault!.publicKey,
+              TestAmounts.COLLATERAL_1_MINA
+            );
+          }
         );
-      })
-    ).rejects.toThrow(/Field.assertEquals()/i);
+      },
+      (err: any) => {
+        assert.match(err.message, /Field.assertEquals()/i);
+        return true;
+      }
+    );
   });
 
   it('should fail if redemption amount is greater than collateral amount', async () => {
-    // Try to redeem too much collateral
-    await expect(
-      redeemCollateral(TestAmounts.COLLATERAL_100_MINA)
-    ).rejects.toThrow(ZkUsdVaultErrors.INSUFFICIENT_COLLATERAL);
+    await assert.rejects(
+      async () => {
+        await redeemCollateral(TestAmounts.COLLATERAL_100_MINA);
+      },
+      {
+        message: ZkUsdVaultErrors.INSUFFICIENT_COLLATERAL,
+      }
+    );
   });
 
   it('should fail if redemption amount would undercollateralize the vault', async () => {
     const currentCollateral =
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
-
     const currentDebt =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
 
-    expect(currentDebt!.toBigInt()).toBeGreaterThan(
-      TestAmounts.ZERO.toBigInt()
+    assert.strictEqual(
+      currentDebt!.toBigInt() > TestAmounts.ZERO.toBigInt(),
+      true
     );
 
-    // Try to redeem too much collateral
-    await expect(redeemCollateral(currentCollateral!)).rejects.toThrow(
-      ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW
+    await assert.rejects(
+      async () => {
+        await redeemCollateral(currentCollateral!);
+      },
+      {
+        message: ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW,
+      }
     );
   });
 
@@ -172,7 +207,8 @@ describe('zkUSD Vault Redeem Test Suite', () => {
 
     const finalCollateral =
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
-    expect(finalCollateral).toEqual(
+    assert.deepStrictEqual(
+      finalCollateral,
       initialCollateral?.sub(TestAmounts.COLLATERAL_1_MINA.mul(3))
     );
   });
@@ -180,14 +216,23 @@ describe('zkUSD Vault Redeem Test Suite', () => {
   it('Should fail if the price feed is in emergency mode', async () => {
     await testHelper.stopTheProtocol();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.redeemCollateral(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.COLLATERAL_1_MINA
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.engine.contract.redeemCollateral(
+              testHelper.agents.alice.vault!.publicKey,
+              TestAmounts.COLLATERAL_1_MINA
+            );
+          }
         );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.EMERGENCY_HALT);
+      },
+      (err: any) => {
+        assert.match(err.message, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
+        return true;
+      }
+    );
   });
 
   it('Should allow redeeming if the price feed is resumed', async () => {

@@ -11,12 +11,16 @@ import {
   Experimental,
   UInt32,
 } from 'o1js';
-import { OracleWhitelist, ProtocolData } from '../types';
-import { ZkUsdEngine, ZkUsdEngineDeployProps } from '../zkusd-engine';
-import { ZkUsdVault } from '../zkusd-vault';
-import { FungibleToken, FungibleTokenAdminBase } from 'mina-fungible-token';
-import { ZkUsdMasterOracle } from '../zkusd-master-oracle';
-import { ZkUsdPriceTracker } from '../zkusd-price-tracker';
+import { OracleWhitelist, ProtocolData } from '../types.js';
+import { ZkUsdEngine, ZkUsdEngineDeployProps } from '../zkusd-engine.js';
+import { ZkUsdVault } from '../zkusd-vault.js';
+import {
+  FungibleToken,
+  FungibleTokenAdminBase,
+  FungibleTokenContract,
+} from '@minatokens/token';
+import { ZkUsdMasterOracle } from '../zkusd-master-oracle.js';
+import { ZkUsdPriceTracker } from '../zkusd-price-tracker.js';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -25,12 +29,11 @@ interface TransactionOptions {
   printAccountUpdates?: boolean;
 }
 
-interface ContractInstance<T extends SmartContract> {
-  contract: T;
+interface ContractInstance<T> {
+  contract: T extends new (...args: any[]) => infer R ? R : T;
   publicKey: PublicKey;
   privateKey: PrivateKey;
 }
-
 interface Agent {
   account: Mina.TestPublicKey;
   vault?: {
@@ -86,7 +89,7 @@ export class TestHelper {
   deployer: Mina.TestPublicKey;
   agents: Record<string, Agent> = {};
   oracles: Record<string, KeyPair> = {};
-  token: ContractInstance<FungibleToken>;
+  token: ContractInstance<ReturnType<typeof FungibleTokenContract>>;
   engine: ContractInstance<ZkUsdEngine>;
   masterOracle: ContractInstance<ZkUsdMasterOracle>;
   vaultVerificationKeyHash?: Field;
@@ -255,12 +258,13 @@ export class TestHelper {
   }
 
   async compileContracts() {
+    const FungibleToken = FungibleTokenContract(ZkUsdEngine);
     await FungibleToken.compile();
     await ZkUsdEngine.compile();
   }
 
   async deployTokenContracts() {
-    FungibleToken.AdminContract = ZkUsdEngine;
+    const FungibleToken = FungibleTokenContract(ZkUsdEngine);
 
     this.token = {
       contract: new FungibleToken(TestHelper.tokenKeyPair.publicKey),

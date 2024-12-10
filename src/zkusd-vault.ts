@@ -14,7 +14,7 @@ import {
   Provable,
   Struct,
 } from 'o1js';
-import { VaultState } from './types';
+import { VaultState } from './types.js';
 
 /**
  * @title   zkUSD Collateral Vault contact

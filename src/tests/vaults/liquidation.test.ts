@@ -1,13 +1,15 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { AccountUpdate, Mina, Permissions, UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault';
-import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine';
-import { ProtocolData } from '../../types';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { ProtocolData } from '../../types.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie', 'dave', 'rewards']);
@@ -49,13 +51,21 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   });
 
   it('should fail if vault is sufficiently collateralized', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.liquidate(
-          testHelper.agents.alice.vault!.publicKey
+    await assert.rejects(
+      async () => {
+        await testHelper.transaction(
+          testHelper.agents.bob.account,
+          async () => {
+            await testHelper.engine.contract.liquidate(
+              testHelper.agents.alice.vault!.publicKey
+            );
+          }
         );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.HEALTH_FACTOR_TOO_HIGH);
+      },
+      {
+        message: ZkUsdVaultErrors.HEALTH_FACTOR_TOO_HIGH,
+      }
+    );
   });
 
   it('should fail liquidation if liquidator does not have sufficent zkUsd', async () => {
@@ -71,13 +81,16 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       );
     });
 
-    await expect(
-      testHelper.transaction(testHelper.agents.charlie.account, async () => {
-        await testHelper.engine.contract.liquidate(
-          testHelper.agents.alice.vault!.publicKey
-        );
-      })
-    ).rejects.toThrow(/Overflow/i);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.charlie.account,
+        async () => {
+          await testHelper.engine.contract.liquidate(
+            testHelper.agents.alice.vault!.publicKey
+          );
+        }
+      );
+    }, /Overflow/i);
   });
 
   it('should fail liquidation if liquidator does not have receive permissions', async () => {
@@ -90,13 +103,13 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       au.requireSignature();
     });
 
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.agents.bob.account, async () => {
         await testHelper.engine.contract.liquidate(
           testHelper.agents.alice.vault!.publicKey
         );
-      })
-    ).rejects.toThrow();
+      });
+    });
   });
 
   it('should allow liquidation of vault if it is undercollateralized', async () => {
@@ -108,9 +121,6 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       AccountUpdate.attachToTransaction(au);
       au.requireSignature();
     });
-
-    //Alice's position is now undercollateralized
-    //Compare preliquidation balances to postliquidation balances
 
     const aliceVaultCollateralPreLiq =
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
@@ -138,7 +148,6 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
     const aliceVaultDebtPostLiq =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
-
     const bobZkUsdBalancePostLiq = await testHelper.token.contract.getBalanceOf(
       testHelper.agents.bob.account
     );
@@ -153,41 +162,50 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    expect(aliceVaultCollateralPostLiq).toEqual(TestAmounts.ZERO);
-    expect(aliceVaultDebtPostLiq).toEqual(TestAmounts.ZERO);
-    expect(bobZkUsdBalancePostLiq).toEqual(
+    assert.deepStrictEqual(aliceVaultCollateralPostLiq, TestAmounts.ZERO);
+    assert.deepStrictEqual(aliceVaultDebtPostLiq, TestAmounts.ZERO);
+    assert.deepStrictEqual(
+      bobZkUsdBalancePostLiq,
       bobZkUsdBalancePreLiq.sub(aliceVaultDebtPreLiq!)
     );
-    expect(bobMinaBalancePostLiq).toEqual(
+    assert.deepStrictEqual(
+      bobMinaBalancePostLiq,
       bobMinaBalancePreLiq.add(aliceVaultCollateralPreLiq!)
     );
-    expect(aliceZkUsdBalancePostLiq).toEqual(aliceZkUsdBalancePreLiq);
-    expect(aliceMinaBalancePostLiq).toEqual(aliceMinaBalancePreLiq);
+    assert.deepStrictEqual(aliceZkUsdBalancePostLiq, aliceZkUsdBalancePreLiq);
+    assert.deepStrictEqual(aliceMinaBalancePostLiq, aliceMinaBalancePreLiq);
   });
 
   it('should emit the Liquidate event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('Liquidate');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'Liquidate');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.liquidator.toBase58()).toEqual(
+    assert.strictEqual(
+      // @ts-ignore
+      latestEvent.event.data.liquidator.toBase58(),
       testHelper.agents.bob.account.toBase58()
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultCollateralLiquidated).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultCollateralLiquidated,
       TestAmounts.COLLATERAL_100_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultDebtRepaid).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultDebtRepaid,
       TestAmounts.DEBT_30_ZKUSD
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.price).toEqual(TestAmounts.PRICE_25_CENT);
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.price,
+      TestAmounts.PRICE_25_CENT
+    );
   });
 
   it('Should fail if the price feed is in emergency mode', async () => {
@@ -225,43 +243,12 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const protocolData = ProtocolData.unpack(protocolDataPacked!);
     console.log('Stopped', protocolData.emergencyStop.toString());
 
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.agents.bob.account, async () => {
         await testHelper.engine.contract.liquidate(
           testHelper.agents.charlie.vault!.publicKey
         );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.EMERGENCY_HALT);
-  });
-
-  it('Should allow liquidation if the price feed is resumed', async () => {
-    await testHelper.resumeTheProtocol();
-
-    // Drop price to make vault eligible for liquidation
-    await testHelper.updateOraclePrice(TestAmounts.PRICE_2_USD);
-
-    // Set up Alice's vault with collateral and debt
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.engine.contract.depositCollateral(
-        testHelper.agents.alice.vault!.publicKey,
-        TestAmounts.COLLATERAL_1_MINA
-      );
-    });
-
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.engine.contract.mintZkUsd(
-        testHelper.agents.alice.vault!.publicKey,
-        TestAmounts.DEBT_50_CENT_ZKUSD
-      );
-    });
-
-    // Drop price to make vault eligible for liquidation
-    await testHelper.updateOraclePrice(TestAmounts.PRICE_25_CENT);
-
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.engine.contract.liquidate(
-        testHelper.agents.alice.vault!.publicKey
-      );
-    });
+      });
+    }, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
   });
 });

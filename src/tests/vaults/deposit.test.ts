@@ -1,11 +1,13 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { Field, Mina, UInt64 } from 'o1js';
-import { ZkUsdVaultErrors } from '../../zkusd-vault';
+import { ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Deposit Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob']);
@@ -36,9 +38,10 @@ describe('zkUSD Vault Deposit Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    expect(collateralAmount).toEqual(TestAmounts.COLLATERAL_100_MINA);
-    expect(debtAmount).toEqual(TestAmounts.ZERO);
-    expect(aliceBalanceAfterDeposit).toEqual(
+    assert.deepStrictEqual(collateralAmount, TestAmounts.COLLATERAL_100_MINA);
+    assert.deepStrictEqual(debtAmount, TestAmounts.ZERO);
+    assert.deepStrictEqual(
+      aliceBalanceAfterDeposit,
       aliceBalanceBeforeDeposit.sub(TestAmounts.COLLATERAL_100_MINA)
     );
   });
@@ -47,21 +50,27 @@ describe('zkUSD Vault Deposit Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('DepositCollateral');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'DepositCollateral');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.amountDeposited).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.amountDeposited,
       TestAmounts.COLLATERAL_100_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultCollateralAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultCollateralAmount,
       TestAmounts.COLLATERAL_100_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultDebtAmount).toEqual(TestAmounts.ZERO);
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultDebtAmount,
+      TestAmounts.ZERO
+    );
   });
 
   it('should have added the collateral to the balance of the engine contract', async () => {
@@ -80,7 +89,8 @@ describe('zkUSD Vault Deposit Test Suite', () => {
       testHelper.engine.contract.address
     );
 
-    expect(engineBalanceAfterDeposit).toEqual(
+    assert.deepStrictEqual(
+      engineBalanceAfterDeposit,
       engineBalanceBeforeDeposit.add(TestAmounts.COLLATERAL_100_MINA)
     );
   });
@@ -89,53 +99,65 @@ describe('zkUSD Vault Deposit Test Suite', () => {
     const totalCollateralDeposited =
       await testHelper.engine.contract.getTotalDepositedCollateral();
 
-    expect(totalCollateralDeposited).toEqual(TestAmounts.COLLATERAL_200_MINA);
+    assert.deepStrictEqual(
+      totalCollateralDeposited,
+      TestAmounts.COLLATERAL_200_MINA
+    );
   });
 
   it('should fail if deposit amount is 0', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.depositCollateral(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.ZERO
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_ZERO);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.depositCollateral(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.ZERO
+          );
+        }
+      );
+    }, new RegExp(ZkUsdVaultErrors.AMOUNT_ZERO));
   });
 
   it('should fail if deposit amount is greater than balance', async () => {
     const aliceBalance = Mina.getBalance(testHelper.agents.alice.account);
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.depositCollateral(
-          testHelper.agents.alice.vault!.publicKey,
-          aliceBalance.add(1)
-        );
-      })
-    ).rejects.toThrow();
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.depositCollateral(
+            testHelper.agents.alice.vault!.publicKey,
+            aliceBalance.add(1)
+          );
+        }
+      );
+    });
   });
 
   it('should fail if deposit amount is negative', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.depositCollateral(
-          testHelper.agents.alice.vault!.publicKey,
-          UInt64.from(-1)
-        );
-      })
-    ).rejects.toThrow();
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.depositCollateral(
+            testHelper.agents.alice.vault!.publicKey,
+            UInt64.from(-1)
+          );
+        }
+      );
+    });
   });
 
   it('should fail if depositer is not the owner', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.agents.bob.account, async () => {
         await testHelper.engine.contract.depositCollateral(
           testHelper.agents.alice.vault!.publicKey,
           TestAmounts.COLLATERAL_100_MINA
         );
-      })
-    ).rejects.toThrow(/Field.assertEquals()/i);
+      });
+    }, /Field.assertEquals()/i);
   });
 
   it('should track total deposits correctly across multiple transactions', async () => {
@@ -157,7 +179,8 @@ describe('zkUSD Vault Deposit Test Suite', () => {
 
     const finalCollateral =
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
-    expect(finalCollateral).toEqual(
+    assert.deepStrictEqual(
+      finalCollateral,
       initialCollateral?.add(TestAmounts.COLLATERAL_1_MINA.mul(3))
     );
   });

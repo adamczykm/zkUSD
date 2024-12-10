@@ -20,8 +20,8 @@ import {
   OracleWhitelist,
   PriceSubmission,
   PriceSubmissionPacked,
-} from './types';
-import { ZkUsdEngine } from './zkusd-engine';
+} from './types.js';
+import { ZkUsdEngine } from './zkusd-engine.js';
 
 export class ZkUsdPriceTracker extends SmartContract {
   @state(PriceSubmissionPacked) oracleOne = State<PriceSubmissionPacked>();

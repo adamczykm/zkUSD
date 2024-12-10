@@ -1,25 +1,8 @@
-import {
-  AccountUpdate,
-  Bool,
-  DeployArgs,
-  Field,
-  method,
-  Poseidon,
-  PrivateKey,
-  Provable,
-  PublicKey,
-  SmartContract,
-  state,
-  State,
-  UInt64,
-  VerificationKey,
-  Permissions,
-  assert,
-  fetchAccount,
-  Mina,
-} from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
-import { ProtocolData } from '../../types';
+import { AccountUpdate, Bool, PrivateKey, VerificationKey, Mina } from 'o1js';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { ProtocolData } from '../../types.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Protocol Vault Administration Test Suite', () => {
   const testHelper = new TestHelper();
@@ -27,7 +10,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
 
   const newAdmin = PrivateKey.randomKeypair();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
@@ -65,18 +48,20 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
       await testHelper.engine.contract.protocolDataPacked.fetch();
     const protocolData = ProtocolData.unpack(packedData!);
 
-    expect(protocolData.admin).toEqual(newAdmin.publicKey);
+    assert.deepStrictEqual(protocolData.admin, newAdmin.publicKey);
   });
 
   it('should emit the admin update event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('AdminUpdated');
+    assert.strictEqual(latestEvent.type, 'AdminUpdated');
     // @ts-ignore
-    expect(latestEvent.event.data.newAdmin).toEqual(newAdmin.publicKey);
-    // @ts-ignore
-    expect(latestEvent.event.data.previousAdmin).toEqual(
+    assert.deepStrictEqual(latestEvent.event.data.newAdmin, newAdmin.publicKey);
+    assert.deepStrictEqual(
+      // @ts-ignore
+
+      latestEvent.event.data.previousAdmin,
       TestHelper.protocolAdminKeyPair.publicKey
     );
   });
@@ -96,7 +81,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
       await testHelper.engine.contract.protocolDataPacked.fetch();
     let protocolData = ProtocolData.unpack(packedData!);
 
-    expect(protocolData.emergencyStop).toEqual(Bool(true));
+    assert.deepStrictEqual(protocolData.emergencyStop, Bool(true));
 
     //Resume the protocol
     await testHelper.transaction(
@@ -110,23 +95,26 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     packedData = await testHelper.engine.contract.protocolDataPacked.fetch();
     protocolData = ProtocolData.unpack(packedData!);
 
-    expect(protocolData.emergencyStop).toEqual(Bool(false));
+    assert.deepStrictEqual(protocolData.emergencyStop, Bool(false));
   });
 
   it('should not allow the admin key to be updated without the current admin key', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
-      })
-    ).rejects.toThrow(/Transaction verification failed/i);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
+        }
+      );
+    }, /Transaction verification failed/i);
   });
 
   it('should not allow the admin contract to be upgraded in the current version', async () => {
     const oldAccount = Mina.getAccount(testHelper.engine.publicKey);
     const verificationKey = oldAccount.zkapp?.verificationKey;
 
-    await expect(
-      testHelper.transaction(
+    await assert.rejects(async () => {
+      await testHelper.transaction(
         testHelper.deployer,
         async () => {
           await testHelper.engine.contract.updateVerificationKey(
@@ -136,9 +124,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
         {
           extraSigners: [newAdmin.privateKey],
         }
-      )
-    ).rejects.toThrow(
-      /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i
-    );
+      );
+    }, /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i);
   });
 });

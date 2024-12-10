@@ -1,12 +1,14 @@
 import { AccountUpdate, Bool, Field, Mina, PrivateKey, UInt32 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
-import { ProtocolData } from '../../types';
-import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { ProtocolData } from '../../types.js';
+import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
@@ -21,10 +23,6 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
       );
     });
   });
-
-  // beforeEach(async () => {
-  //   await testHelper.resumeTheProtocol();
-  // });
 
   it('should allow the protocol to be stopped with the admin key', async () => {
     await testHelper.transaction(
@@ -44,7 +42,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
 
     const emergencyStopFlag = protocolData.emergencyStop;
 
-    expect(emergencyStopFlag).toEqual(Bool(true));
+    assert.deepStrictEqual(emergencyStopFlag, Bool(true));
 
     await testHelper.resumeTheProtocol();
   });
@@ -63,17 +61,20 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('EmergencyStop');
+    assert.strictEqual(latestEvent.type, 'EmergencyStop');
 
     await testHelper.resumeTheProtocol();
   });
 
   it('should not allow the protocol to be stopped without the admin key', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.stopTheProtocol();
-      })
-    ).rejects.toThrow(/Transaction verification failed/i);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.stopTheProtocol();
+        }
+      );
+    }, /Transaction verification failed/i);
   });
 
   it('should allow the protocol to be resumed with the admin key', async () => {
@@ -94,24 +95,27 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
 
     const protocolData = ProtocolData.unpack(emergencyStopFlag!);
 
-    expect(protocolData.emergencyStop).toEqual(Bool(false));
+    assert.deepStrictEqual(protocolData.emergencyStop, Bool(false));
   });
 
   it('should emit the emergency resume event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('EmergencyResume');
+    assert.strictEqual(latestEvent.type, 'EmergencyResume');
   });
 
   it('should not allow the protocol to be resumed without the admin key', async () => {
     await testHelper.stopTheProtocol();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.resumeTheProtocol();
-      })
-    ).rejects.toThrow(/Transaction verification failed/i);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.resumeTheProtocol();
+        }
+      );
+    }, /Transaction verification failed/i);
 
     await testHelper.resumeTheProtocol();
   });
@@ -119,15 +123,18 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
   it('should not allow vault actions when the protocol is stopped', async () => {
     await testHelper.stopTheProtocol();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_5_ZKUSD
-        );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.EMERGENCY_HALT);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        }
+      );
+    }, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
 
     await testHelper.resumeTheProtocol();
   });
@@ -135,14 +142,17 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
   it('should allow vault actions when the protocol is resumed', async () => {
     await testHelper.stopTheProtocol();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_5_ZKUSD
-        );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.EMERGENCY_HALT);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        }
+      );
+    }, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
 
     await testHelper.resumeTheProtocol();
 
@@ -157,6 +167,6 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    expect(vaultBalance).toEqual(TestAmounts.DEBT_5_ZKUSD);
+    assert.deepStrictEqual(vaultBalance, TestAmounts.DEBT_5_ZKUSD);
   });
 });

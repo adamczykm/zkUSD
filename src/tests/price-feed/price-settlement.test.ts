@@ -1,13 +1,15 @@
 import { AccountUpdate, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
-import { ZkUsdEngine } from '../../zkusd-engine';
-import { OracleWhitelist } from '../../types';
-import { ZkUsdMasterOracle } from '../../zkusd-master-oracle';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { ZkUsdEngine } from '../../zkusd-engine.js';
+import { OracleWhitelist } from '../../types.js';
+import { ZkUsdMasterOracle } from '../../zkusd-master-oracle.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
@@ -18,16 +20,19 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     const price = await testHelper.engine.contract.getPrice();
 
-    expect(price.toString()).toEqual(TestAmounts.PRICE_25_CENT.toString());
+    assert.strictEqual(price.toString(), TestAmounts.PRICE_25_CENT.toString());
   });
 
   it('should emit the price update event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('PriceUpdate');
-    // @ts-ignore
-    expect(latestEvent.event.data.newPrice).toEqual(TestAmounts.PRICE_25_CENT);
+    assert.strictEqual(latestEvent.type, 'PriceUpdate');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.newPrice,
+      TestAmounts.PRICE_25_CENT
+    );
   });
 
   it('should eventually settle odd price, 3 blocks later, if we are on an odd block', async () => {
@@ -36,7 +41,10 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     const oddPrice = await testHelper.engine.contract.priceOddBlock.fetch();
 
-    expect(oddPrice?.toString()).toEqual(TestAmounts.PRICE_50_CENT.toString());
+    assert.strictEqual(
+      oddPrice?.toString(),
+      TestAmounts.PRICE_50_CENT.toString()
+    );
   });
 
   it('should eventually settle even price, 3 blocks later, if we are on an even block', async () => {
@@ -45,7 +53,10 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     const evenPrice = await testHelper.engine.contract.priceEvenBlock.fetch();
 
-    expect(evenPrice?.toString()).toEqual(TestAmounts.PRICE_52_CENT.toString());
+    assert.strictEqual(
+      evenPrice?.toString(),
+      TestAmounts.PRICE_52_CENT.toString()
+    );
   });
 
   it('should use the fallback price if oracles havent submitted the price', async () => {
@@ -81,7 +92,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     const price = await testHelper.engine.contract.getPrice();
 
-    expect(price.toString()).toEqual(TestAmounts.PRICE_2_USD.toString());
+    assert.strictEqual(price.toString(), TestAmounts.PRICE_2_USD.toString());
   });
 
   it('should calculate correct median', async () => {
@@ -132,7 +143,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     const price = await testHelper.engine.contract.getPrice();
     // Should return middle price (50 cents)
-    expect(price.toString()).toEqual(medianPrice.toString());
+    assert.strictEqual(price.toString(), medianPrice.toString());
   });
 
   it('should calculate correct median with 4 prices submitted', async () => {
@@ -190,13 +201,9 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
       testHelper.Local.getNetworkState().blockchainLength.add(1)
     );
 
-    // Get the current price to verify median calculation
-    // We have 4 submitted prices: [48, 49, 51, 52] cents
-    // And fallback price of $2 will fill remaining 4 slots: [200, 200, 200, 200] cents
-    // So full sorted array is: [48, 49, 51, 52, 200, 200, 200, 200]
-    // Median is average of 4th and 5th elements (52 + 200)/2 = 126 cents
     const priceBeforeSettlement = await testHelper.engine.contract.getPrice();
-    expect(priceBeforeSettlement.toString()).toEqual(
+    assert.strictEqual(
+      priceBeforeSettlement.toString(),
       TestAmounts.PRICE_52_CENT.add(TestAmounts.PRICE_2_USD)
         .div(UInt64.from(2))
         .toString()
@@ -204,7 +211,6 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should handle maximum number of prices correctly', async () => {
-    // Update the whitelist
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
@@ -217,7 +223,6 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
       }
     );
 
-    // Submit prices in ascending order
     for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
       const price = UInt64.from((0.48 + i * 0.01) * 1e9); // Prices from 0.48 to 0.57 USD
@@ -238,24 +243,20 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         .send();
     }
 
-    // Move block forward
     testHelper.Local.setBlockchainLength(
       testHelper.Local.getNetworkState().blockchainLength.add(1)
     );
 
-    // Settle the actions
     await testHelper.transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
-    // Move block forward
     testHelper.Local.setBlockchainLength(
       testHelper.Local.getNetworkState().blockchainLength.add(1)
     );
 
     const price = await testHelper.engine.contract.getPrice();
-    // Should return average of two middle prices (0.515 USD for 8 participants)
     const expectedMedian = UInt64.from(0.515 * 1e9); // 0.515 USD
-    expect(price.toString()).toEqual(expectedMedian.toString());
+    assert.strictEqual(price.toString(), expectedMedian.toString());
   });
 });

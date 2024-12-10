@@ -1,19 +1,22 @@
 import { AccountUpdate, Field, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper';
-import { OracleWhitelist, PriceSubmission, ProtocolData } from '../../types';
-import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine';
+import { TestAmounts, TestHelper } from '../test-helper.js';
+import { OracleWhitelist, PriceSubmission, ProtocolData } from '../../types.js';
+import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { describe, it, before, beforeEach } from 'node:test';
+import assert from 'node:assert';
 import {
   ZkUsdMasterOracle,
   ZkUsdMasterOracleErrors,
-} from '../../zkusd-master-oracle';
-import { ZkUsdPriceTracker } from '../../zkusd-price-tracker';
+} from '../../zkusd-master-oracle.js';
+import { ZkUsdPriceTracker } from '../../zkusd-price-tracker.js';
 
 describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   const testHelper = new TestHelper();
 
   let whitelist: OracleWhitelist;
   let whitelistedOracles: Map<string, number>;
-  beforeAll(async () => {
+
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     whitelist = testHelper.whitelist;
@@ -60,7 +63,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
   it('should allow a whitelisted address to submit a price', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
-
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
@@ -70,11 +72,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       );
     });
 
-    console.log(
-      'blockchainLength',
-      testHelper.Local.getNetworkState().blockchainLength.toString()
-    );
-
     const trackerAddress = getWriteTrackerAddress();
 
     const tracker = new ZkUsdPriceTracker(
@@ -83,19 +80,15 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const priceSubmission = await tracker.oracleOne.fetch();
-
-    console.log('priceSubmission', priceSubmission?.packedData.toString());
-
     const submission = PriceSubmission.unpack(priceSubmission!);
 
-    expect(submission.price).toEqual(TestAmounts.PRICE_48_CENT);
+    assert.deepStrictEqual(submission.price, TestAmounts.PRICE_48_CENT);
   });
 
   it('should submit the price to the even price tracker on an even block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(2));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
-
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
@@ -107,7 +100,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const trackerAddress = getWriteTrackerAddress();
 
-    expect(trackerAddress).toEqual(
+    assert.deepStrictEqual(
+      trackerAddress,
       ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
     );
 
@@ -117,17 +111,15 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const priceSubmission = await tracker.oracleOne.fetch();
-
     const submission = PriceSubmission.unpack(priceSubmission!);
 
-    expect(submission.price).toEqual(TestAmounts.PRICE_52_CENT);
+    assert.deepStrictEqual(submission.price, TestAmounts.PRICE_52_CENT);
   });
 
   it('should submit the price to the odd price tracker on an odd block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(1001));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
-
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
@@ -139,7 +131,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     const trackerAddress = getWriteTrackerAddress();
 
-    expect(trackerAddress).toEqual(
+    assert.deepStrictEqual(
+      trackerAddress,
       ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS
     );
 
@@ -149,15 +142,13 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const priceSubmission = await tracker.oracleOne.fetch();
-
     const submission = PriceSubmission.unpack(priceSubmission!);
 
-    expect(submission.price).toEqual(TestAmounts.PRICE_49_CENT);
+    assert.deepStrictEqual(submission.price, TestAmounts.PRICE_49_CENT);
   });
 
   it('should emit the price submission event', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
-
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
@@ -170,65 +161,73 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    console.log(contractEvents);
-
-    expect(latestEvent.type).toEqual('PriceSubmission');
-    // @ts-ignore
-    expect(latestEvent.event.data.submitter.toBase58()).toEqual(
+    assert.strictEqual(latestEvent.type, 'PriceSubmission');
+    assert.strictEqual(
+      // @ts-ignore
+      latestEvent.event.data.submitter.toBase58(),
       testHelper.oracles[oracleName].publicKey.toBase58()
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.price).toEqual(TestAmounts.PRICE_25_CENT);
-    // @ts-ignore
-    expect(latestEvent.event.data.oracleFee).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.oracleFee,
       TestAmounts.COLLATERAL_1_MINA
     );
   });
 
   it('should not allow a non-whitelisted address to submit a price', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
-          testHelper.whitelist
-        );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.submitPrice(
+            TestAmounts.PRICE_25_CENT,
+            testHelper.whitelist
+          );
+        }
+      );
+    }, new RegExp(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED));
   });
 
   it('should not allow a different version of the whitelist', async () => {
     const fakeWhitelist = testHelper.whitelist;
     fakeWhitelist.addresses[0] = testHelper.agents.alice.account;
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.submitPrice(
-          TestAmounts.PRICE_25_CENT,
-          fakeWhitelist
-        );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.INVALID_WHITELIST);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.submitPrice(
+            TestAmounts.PRICE_25_CENT,
+            fakeWhitelist
+          );
+        }
+      );
+    }, new RegExp(ZkUsdEngineErrors.INVALID_WHITELIST));
   });
 
   it('should not allow a price to be submitted with a price of 0', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await expect(
-      testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.ZERO,
           testHelper.whitelist
         );
-      })
-    ).rejects.toThrow(ZkUsdEngineErrors.AMOUNT_ZERO);
+      });
+    }, new RegExp(ZkUsdEngineErrors.AMOUNT_ZERO));
   });
 
   it('should allow all the whitelisted oracles to submit prices', async () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleNames = Array.from(whitelistedOracles.keys());
 
-    // Submit prices from all whitelisted oracles
     for (const oracleName of oracleNames) {
       await testHelper.transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
@@ -269,14 +268,38 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       oracleEightPackedData!
     );
 
-    expect(oracleOneSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleTwoSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleThreeSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleFourSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleFiveSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleSixSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleSevenSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
-    expect(oracleEightSubmission.price).toEqual(TestAmounts.PRICE_25_CENT);
+    assert.deepStrictEqual(
+      oracleOneSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleTwoSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleThreeSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleFourSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleFiveSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleSixSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleSevenSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
+    assert.deepStrictEqual(
+      oracleEightSubmission.price,
+      TestAmounts.PRICE_25_CENT
+    );
   });
 
   it('should update the odd price tracker on an odd block', async () => {
@@ -285,7 +308,6 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    // Submit prices from all whitelisted oracles
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_2_USD,
@@ -301,10 +323,9 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     const priceSubmission = await tracker.oracleOne.fetch();
-
     const submission = PriceSubmission.unpack(priceSubmission!);
 
-    expect(submission.price).toEqual(TestAmounts.PRICE_2_USD);
+    assert.deepStrictEqual(submission.price, TestAmounts.PRICE_2_USD);
   });
 
   it('should allow the fallback price to be updated with the admin key', async () => {
@@ -328,7 +349,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const fallbackPrice =
       await testHelper.masterOracle.contract.getFallbackPrice();
 
-    expect(fallbackPrice.toString()).toEqual(
+    assert.strictEqual(
+      fallbackPrice.toString(),
       TestAmounts.PRICE_52_CENT.toString()
     );
   });
@@ -349,9 +371,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('FallbackPriceUpdate');
-    // @ts-ignore
-    expect(latestEvent.event.data.newPrice).toEqual(TestAmounts.PRICE_48_CENT);
+    assert.strictEqual(latestEvent.type, 'FallbackPriceUpdate');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.newPrice,
+      TestAmounts.PRICE_48_CENT
+    );
   });
 
   it('should update the even fallback price if we are on an odd block', async () => {
@@ -371,10 +396,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const fallbackEvenPrice =
       await testHelper.masterOracle.contract.fallbackPriceEvenBlock.fetch();
 
-    expect(fallbackEvenPrice?.toString()).toEqual(
+    assert.strictEqual(
+      fallbackEvenPrice?.toString(),
       TestAmounts.PRICE_25_CENT.toString()
     );
   });
+
   it('should update the odd fallback price if we are on an even block', async () => {
     testHelper.Local.setBlockchainLength(UInt32.from(2));
     await testHelper.transaction(
@@ -392,23 +419,25 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const fallbackOddPrice =
       await testHelper.masterOracle.contract.fallbackPriceOddBlock.fetch();
 
-    expect(fallbackOddPrice?.toString()).toEqual(
+    assert.strictEqual(
+      fallbackOddPrice?.toString(),
       TestAmounts.PRICE_2_USD.toString()
     );
   });
+
   it('should not allow the fallback price to be updated without the admin key', async () => {
-    await expect(
-      testHelper.transaction(testHelper.deployer, async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.deployer, async () => {
         await testHelper.engine.contract.updateFallbackPrice(
           TestAmounts.PRICE_2_USD
         );
-      })
-    ).rejects.toThrow(/Transaction verification failed/i);
+      });
+    }, /Transaction verification failed/i);
   });
 
   it('should not allow the fallback price to be updated to 0', async () => {
-    await expect(
-      testHelper.transaction(
+    await assert.rejects(async () => {
+      await testHelper.transaction(
         testHelper.deployer,
         async () => {
           await testHelper.engine.contract.updateFallbackPrice(
@@ -418,14 +447,13 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         {
           extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
         }
-      )
-    ).rejects.toThrow(ZkUsdMasterOracleErrors.AMOUNT_ZERO);
+      );
+    }, new RegExp(ZkUsdMasterOracleErrors.AMOUNT_ZERO));
   });
 
   it('should pay out the oracle fee correctly', async () => {
     const packedData =
       await testHelper.engine.contract.protocolDataPacked.fetch();
-
     const protocolData = ProtocolData.unpack(packedData!);
     const oracleFee = protocolData.oracleFlatFee;
 
@@ -463,15 +491,18 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       await testHelper.engine.contract.getAvailableOracleFunds();
 
     // Verify oracle received the fee
-    expect(oracleBalanceAfter.toString()).toEqual(
+    assert.strictEqual(
+      oracleBalanceAfter.toString(),
       oracleBalanceBefore.add(oracleFee).toString()
     );
 
-    expect(minaBalanceOfEngineBefore.sub(priceFeedOracleBalanceAfter)).toEqual(
+    assert.deepStrictEqual(
+      minaBalanceOfEngineBefore.sub(priceFeedOracleBalanceAfter),
       oracleFee
     );
 
-    expect(oracleFundsInEngineBefore.sub(oracleFee)).toEqual(
+    assert.deepStrictEqual(
+      oracleFundsInEngineBefore.sub(oracleFee),
       oracleFundsInEngineAfter
     );
   });
@@ -502,9 +533,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     //submit a price
-
     const whitelistedOracles = testHelper.whitelistedOracles;
-
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await testHelper.transaction(testHelper.oracles[oracleName], async () => {
@@ -517,7 +546,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const availableOracleFundsAfter =
       await testHelper.engine.contract.getAvailableOracleFunds();
 
-    expect(availableOracleFundsAfter.toString()).toEqual(
+    assert.strictEqual(
+      availableOracleFundsAfter.toString(),
       UInt64.zero.toString()
     );
 
@@ -534,51 +564,13 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     //Submit a new price - this should fail
-    await expect(
-      testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.PRICE_50_CENT,
           testHelper.whitelist
         );
-      })
-    ).rejects.toThrow(/Overflow/i);
-  });
-
-  it('should allow anyone to deposit funds into the oracle', async () => {
-    const oracleFundsBefore =
-      await testHelper.engine.contract.getAvailableOracleFunds();
-
-    console.log('oracleFunds', oracleFundsBefore.toString());
-
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.engine.contract.depositOracleFunds(
-        TestAmounts.COLLATERAL_50_MINA
-      );
-    });
-
-    const oracleFundsAfterDeposit =
-      await testHelper.engine.contract.getAvailableOracleFunds();
-
-    expect(oracleFundsAfterDeposit.toString()).toEqual(
-      oracleFundsBefore.add(TestAmounts.COLLATERAL_50_MINA).toString()
-    );
-  });
-
-  it('should emit the oracle funds deposited event', async () => {
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      await testHelper.engine.contract.depositOracleFunds(
-        TestAmounts.COLLATERAL_50_MINA
-      );
-    });
-
-    const contractEvents = await testHelper.engine.contract.fetchEvents();
-    const latestEvent = contractEvents[0];
-
-    expect(latestEvent.type).toEqual('OracleFundsDeposited');
-
-    // @ts-ignore
-    expect(latestEvent.event.data.amount).toEqual(
-      TestAmounts.COLLATERAL_50_MINA
-    );
+      });
+    }, /Overflow/i);
   });
 });

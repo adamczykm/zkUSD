@@ -1,11 +1,13 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
 import { AccountUpdate, Field, UInt64 } from 'o1js';
-import { ZkUsdVaultErrors } from '../../zkusd-vault';
+import { ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 
 describe('zkUSD Vault Burn Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie']);
@@ -51,10 +53,12 @@ describe('zkUSD Vault Burn Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    expect(vaultFinalDebt).toEqual(
+    assert.deepStrictEqual(
+      vaultFinalDebt,
       vaultStartingDebt?.sub(TestAmounts.DEBT_1_ZKUSD)
     );
-    expect(aliceFinalBalance).toEqual(
+    assert.deepStrictEqual(
+      aliceFinalBalance,
       aliceStartingBalance.sub(TestAmounts.DEBT_1_ZKUSD)
     );
   });
@@ -63,59 +67,72 @@ describe('zkUSD Vault Burn Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    expect(latestEvent.type).toEqual('BurnZkUsd');
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultAddress).toEqual(
+    assert.strictEqual(latestEvent.type, 'BurnZkUsd');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultAddress,
       testHelper.agents.alice.vault?.publicKey
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.amountBurned).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.amountBurned,
       TestAmounts.DEBT_1_ZKUSD
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultCollateralAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultCollateralAmount,
       TestAmounts.COLLATERAL_100_MINA
     );
-    // @ts-ignore
-    expect(latestEvent.event.data.vaultDebtAmount).toEqual(
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.vaultDebtAmount,
       TestAmounts.DEBT_30_ZKUSD.sub(TestAmounts.DEBT_1_ZKUSD)
     );
   });
 
   it('should fail if burn amount is zero', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.burnZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.ZERO
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_ZERO);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.burnZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.ZERO
+          );
+        }
+      );
+    }, new RegExp(ZkUsdVaultErrors.AMOUNT_ZERO));
   });
 
   it('should fail if burn amount exceeds debt', async () => {
     const currentDebt =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.burnZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          currentDebt!.add(1)
-        );
-      })
-    ).rejects.toThrow(ZkUsdVaultErrors.AMOUNT_EXCEEDS_DEBT);
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.burnZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            currentDebt!.add(1)
+          );
+        }
+      );
+    }, new RegExp(ZkUsdVaultErrors.AMOUNT_EXCEEDS_DEBT));
   });
 
   it('should fail if burn amount is negative', async () => {
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.burnZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          UInt64.from(-1)
-        );
-      })
-    ).rejects.toThrow();
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.burnZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            UInt64.from(-1)
+          );
+        }
+      );
+    });
   });
 
   it('should track debt correctly after multiple burns', async () => {
@@ -137,7 +154,8 @@ describe('zkUSD Vault Burn Test Suite', () => {
 
     const finalDebt =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
-    expect(finalDebt).toEqual(
+    assert.deepStrictEqual(
+      finalDebt,
       initialDebt?.sub(TestAmounts.DEBT_10_CENT_ZKUSD.mul(3))
     );
   });
@@ -157,13 +175,16 @@ describe('zkUSD Vault Burn Test Suite', () => {
       );
     });
 
-    await expect(
-      testHelper.transaction(testHelper.agents.alice.account, async () => {
-        await testHelper.engine.contract.burnZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_10_CENT_ZKUSD
-        );
-      })
-    ).rejects.toThrow();
+    await assert.rejects(async () => {
+      await testHelper.transaction(
+        testHelper.agents.alice.account,
+        async () => {
+          await testHelper.engine.contract.burnZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_10_CENT_ZKUSD
+          );
+        }
+      );
+    });
   });
 });

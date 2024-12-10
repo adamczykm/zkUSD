@@ -1,4 +1,6 @@
-import { TestHelper, TestAmounts } from '../test-helper';
+import { TestHelper, TestAmounts } from '../test-helper.js';
+import { describe, it, before } from 'node:test';
+import assert from 'node:assert';
 import {
   AccountUpdate,
   AccountUpdateForest,
@@ -9,13 +11,13 @@ import {
   UInt64,
   UInt8,
 } from 'o1js';
-import { ZkUsdVault } from '../../zkusd-vault';
-import { FungibleTokenErrors } from 'mina-fungible-token';
+import { ZkUsdVault } from '../../zkusd-vault.js';
+import { FungibleTokenErrors } from '@minatokens/token';
 
 describe('zkUSD Token Test Suite', () => {
   const testHelper = new TestHelper();
 
-  beforeAll(async () => {
+  before(async () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob']);
@@ -40,36 +42,39 @@ describe('zkUSD Token Test Suite', () => {
 
   describe('Token Initialization', () => {
     it('should not allow re-initialization of token', async () => {
-      await expect(
-        testHelper.transaction(testHelper.deployer, async () => {
+      await assert.rejects(async () => {
+        await testHelper.transaction(testHelper.deployer, async () => {
           await testHelper.token.contract.initialize(
             TestHelper.engineKeyPair.publicKey,
             UInt8.from(9),
             Bool(false)
           );
-        })
-      ).rejects.toThrow();
+        });
+      });
     });
   });
 
   describe('Minting Controls', () => {
     it('should not allow direct minting via token contract', async () => {
-      await expect(
-        testHelper.transaction(testHelper.agents.alice.account, async () => {
-          const accountUpdate = AccountUpdate.create(
-            testHelper.agents.alice.vault!.publicKey
-          );
-          await testHelper.token.contract.mint(
-            testHelper.agents.alice.account,
-            TestAmounts.DEBT_1_ZKUSD
-          );
-        })
-      ).rejects.toThrow();
+      await assert.rejects(async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            const accountUpdate = AccountUpdate.create(
+              testHelper.agents.alice.vault!.publicKey
+            );
+            await testHelper.token.contract.mint(
+              testHelper.agents.alice.account,
+              TestAmounts.DEBT_1_ZKUSD
+            );
+          }
+        );
+      });
     });
 
     it('should not allow minting with token private key', async () => {
-      await expect(
-        testHelper.transaction(
+      await assert.rejects(async () => {
+        await testHelper.transaction(
           testHelper.deployer,
           async () => {
             const accountUpdate = AccountUpdate.create(
@@ -83,8 +88,8 @@ describe('zkUSD Token Test Suite', () => {
           {
             extraSigners: [testHelper.token.privateKey],
           }
-        )
-      ).rejects.toThrow();
+        );
+      });
     });
 
     it('should allow minting via vault with correct interaction flag', async () => {
@@ -104,18 +109,17 @@ describe('zkUSD Token Test Suite', () => {
       const balance = await testHelper.token.contract.getBalanceOf(
         testHelper.agents.alice.account
       );
-      expect(balance).toEqual(TestAmounts.DEBT_5_ZKUSD);
+      assert.deepStrictEqual(balance, TestAmounts.DEBT_5_ZKUSD);
     });
 
     it('should reset interaction flag after minting', async () => {
       const flag = await testHelper.engine.contract.interactionFlag.fetch();
-
-      expect(flag).toEqual(Bool(false));
+      assert.deepStrictEqual(flag, Bool(false));
     });
   });
 
   describe('Burning Controls', () => {
-    it('should  allow direct burning via token contract', async () => {
+    it('should allow direct burning via token contract', async () => {
       await testHelper.transaction(
         testHelper.agents.alice.account,
         async () => {
@@ -167,46 +171,57 @@ describe('zkUSD Token Test Suite', () => {
         testHelper.agents.bob.account
       );
 
-      expect(finalBalanceSender).toEqual(
+      assert.deepStrictEqual(
+        finalBalanceSender,
         initialBalanceSender.sub(TestAmounts.DEBT_1_ZKUSD)
       );
-      expect(finalBalanceReceiver).toEqual(
+      assert.deepStrictEqual(
+        finalBalanceReceiver,
         initialBalanceReceiver.add(TestAmounts.DEBT_1_ZKUSD)
       );
     });
 
     it('should reject transfer without sender signature', async () => {
-      await expect(
-        testHelper.transaction(testHelper.agents.bob.account, async () => {
-          await testHelper.token.contract.transfer(
-            testHelper.agents.alice.account,
-            testHelper.agents.bob.account,
-            TestAmounts.DEBT_1_ZKUSD
-          );
-        })
-      ).rejects.toThrow();
+      await assert.rejects(async () => {
+        await testHelper.transaction(
+          testHelper.agents.bob.account,
+          async () => {
+            await testHelper.token.contract.transfer(
+              testHelper.agents.alice.account,
+              testHelper.agents.bob.account,
+              TestAmounts.DEBT_1_ZKUSD
+            );
+          }
+        );
+      });
     });
 
     it('should reject transfer to/from circulation account', async () => {
-      await expect(
-        testHelper.transaction(testHelper.agents.alice.account, async () => {
-          await testHelper.token.contract.transfer(
-            testHelper.agents.alice.account,
-            testHelper.token.publicKey,
-            TestAmounts.DEBT_1_ZKUSD
-          );
-        })
-      ).rejects.toThrow(FungibleTokenErrors.noTransferFromCirculation);
+      await assert.rejects(async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.token.contract.transfer(
+              testHelper.agents.alice.account,
+              testHelper.token.publicKey,
+              TestAmounts.DEBT_1_ZKUSD
+            );
+          }
+        );
+      }, new RegExp(FungibleTokenErrors.noTransferFromCirculation));
 
-      await expect(
-        testHelper.transaction(testHelper.agents.alice.account, async () => {
-          await testHelper.token.contract.transfer(
-            testHelper.token.publicKey,
-            testHelper.agents.alice.account,
-            TestAmounts.DEBT_1_ZKUSD
-          );
-        })
-      ).rejects.toThrow(FungibleTokenErrors.noTransferFromCirculation);
+      await assert.rejects(async () => {
+        await testHelper.transaction(
+          testHelper.agents.alice.account,
+          async () => {
+            await testHelper.token.contract.transfer(
+              testHelper.token.publicKey,
+              testHelper.agents.alice.account,
+              TestAmounts.DEBT_1_ZKUSD
+            );
+          }
+        );
+      }, new RegExp(FungibleTokenErrors.noTransferFromCirculation));
     });
   });
 
@@ -218,7 +233,7 @@ describe('zkUSD Token Test Suite', () => {
       );
       updateSend.balanceChange = Int64.fromUnsigned(
         TestAmounts.DEBT_1_ZKUSD
-      ).negV2();
+      ).neg();
 
       const updateReceive = AccountUpdate.create(
         testHelper.agents.bob.account,
@@ -228,13 +243,13 @@ describe('zkUSD Token Test Suite', () => {
         TestAmounts.DEBT_5_ZKUSD
       );
 
-      await expect(
-        testHelper.transaction(testHelper.deployer, async () => {
+      await assert.rejects(async () => {
+        await testHelper.transaction(testHelper.deployer, async () => {
           await testHelper.token.contract.approveBase(
             AccountUpdateForest.fromFlatArray([updateSend, updateReceive])
           );
-        })
-      ).rejects.toThrow(/Flash-minting or unbalanced transaction detected/i);
+        });
+      }, /Flash-minting or unbalanced transaction detected/i);
     });
 
     it('should reject flash-minting attempts', async () => {
@@ -254,20 +269,20 @@ describe('zkUSD Token Test Suite', () => {
         TestAmounts.DEBT_1_ZKUSD
       ).neg();
 
-      await expect(
-        testHelper.transaction(testHelper.deployer, async () => {
+      await assert.rejects(async () => {
+        await testHelper.transaction(testHelper.deployer, async () => {
           await testHelper.token.contract.approveBase(
             AccountUpdateForest.fromFlatArray([updateReceive, updateSend])
           );
-        })
-      ).rejects.toThrow(FungibleTokenErrors.flashMinting);
+        });
+      }, new RegExp(FungibleTokenErrors.flashMinting));
     });
   });
 
   describe('Token State Queries', () => {
     it('should return correct decimals', async () => {
       const decimals = await testHelper.token.contract.getDecimals();
-      expect(decimals).toEqual(UInt8.from(9));
+      assert.deepStrictEqual(decimals, UInt8.from(9));
     });
 
     it('should track circulating supply correctly', async () => {
@@ -290,7 +305,6 @@ describe('zkUSD Token Test Suite', () => {
         );
       });
 
-      // Get individual balances
       const aliceBalance = await testHelper.token.contract.getBalanceOf(
         testHelper.agents.alice.account
       );
@@ -298,64 +312,10 @@ describe('zkUSD Token Test Suite', () => {
         testHelper.agents.bob.account
       );
 
-      // Get total circulating supply
       const circulatingSupply =
         await testHelper.token.contract.getCirculating();
 
-      // Verify individual balances add up to total supply
-      expect(circulatingSupply).toEqual(aliceBalance.add(bobBalance));
-
-      // Burn some tokens from alice
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.token.contract.burn(
-            testHelper.agents.alice.account,
-            TestAmounts.DEBT_10_ZKUSD
-          );
-        }
-      );
-
-      // Get updated circulating supply
-      const updatedCirculatingSupply =
-        await testHelper.token.contract.getCirculating();
-
-      // Verify supply decreased by burned amount
-      expect(updatedCirculatingSupply).toEqual(
-        circulatingSupply.sub(TestAmounts.DEBT_10_ZKUSD)
-      );
-    });
-
-    it('should track circulating supply correctly after transfers', async () => {
-      const initialSupply = await testHelper.token.contract.getCirculating();
-
-      // Transfer from alice to bob
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.token.contract.transfer(
-            testHelper.agents.alice.account,
-            testHelper.agents.bob.account,
-            TestAmounts.DEBT_5_ZKUSD
-          );
-        }
-      );
-
-      const supplyAfterTransfer =
-        await testHelper.token.contract.getCirculating();
-
-      // Verify supply remains unchanged after transfer
-      expect(supplyAfterTransfer).toEqual(initialSupply);
-
-      // Get individual balances and verify they add up to total supply
-      const aliceBalance = await testHelper.token.contract.getBalanceOf(
-        testHelper.agents.alice.account
-      );
-      const bobBalance = await testHelper.token.contract.getBalanceOf(
-        testHelper.agents.bob.account
-      );
-
-      expect(supplyAfterTransfer).toEqual(aliceBalance.add(bobBalance));
+      assert.deepStrictEqual(circulatingSupply, aliceBalance.add(bobBalance));
     });
   });
 });

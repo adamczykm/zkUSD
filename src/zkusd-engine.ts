@@ -1,4 +1,8 @@
-import { FungibleToken, FungibleTokenAdminBase } from 'mina-fungible-token';
+import {
+  FungibleTokenContract as FungibleToken,
+  FungibleTokenAdminBase,
+  FungibleTokenContract,
+} from '@minatokens/token';
 import {
   AccountUpdate,
   Bool,
@@ -18,12 +22,12 @@ import {
   assert,
   VerificationKey,
   Poseidon,
-  TokenContractV2,
+  TokenContract,
   AccountUpdateForest,
   Int64,
   fetchAccount,
 } from 'o1js';
-import { ZkUsdVault } from './zkusd-vault';
+import { ZkUsdVault } from './zkusd-vault.js';
 
 import {
   OracleWhitelist,
@@ -34,9 +38,9 @@ import {
   VaultState,
   PriceSubmission,
   PriceSubmissionPacked,
-} from './types';
-import { ZkUsdMasterOracle } from './zkusd-master-oracle';
-import { ZkUsdPriceTracker } from './zkusd-price-tracker';
+} from './types.js';
+import { ZkUsdMasterOracle } from './zkusd-master-oracle.js';
+import { ZkUsdPriceTracker } from './zkusd-price-tracker.js';
 
 // Errors
 export const ZkUsdEngineErrors = {
@@ -147,7 +151,7 @@ export interface ZkUsdEngineDeployProps extends Exclude<DeployArgs, undefined> {
 }
 
 export class ZkUsdEngine
-  extends TokenContractV2
+  extends TokenContract
   implements FungibleTokenAdminBase
 {
   @state(UInt64) priceEvenBlock = State<UInt64>();
@@ -176,6 +180,8 @@ export class ZkUsdEngine
   static ODD_ORACLE_PRICE_TRACKER_ADDRESS = PublicKey.fromBase58(
     'B62qqpWYnkG8AgYTDvtvxSJhAoJemHZJGPcVrTgGNKT5Kz9pQjMoysm'
   );
+
+  static FungibleToken = FungibleTokenContract(ZkUsdEngine);
 
   readonly events = {
     PriceUpdate: PriceUpdateEvent,
@@ -366,7 +372,9 @@ export class ZkUsdEngine
     const owner = this.sender.getAndRequireSignature();
 
     //Get the zkUSD token contract
-    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
 
     //We create an account for the owner on the zkUSD token contract (if they don't already have one)
     await zkUSD.getBalanceOf(owner);
@@ -559,7 +567,9 @@ export class ZkUsdEngine
     const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the zkUSD token contract
-    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
 
     //Get the price
     const price = await this.getPrice();
@@ -606,7 +616,9 @@ export class ZkUsdEngine
     const owner = this.sender.getAndRequireSignature();
 
     //Get the zkUSD token contract
-    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
 
     //Manage the debt in the vault
     const { collateralAmount, debtAmount } = await vault.burnZkUsd(
@@ -638,7 +650,9 @@ export class ZkUsdEngine
     const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the zkUSD token contract
-    const zkUSD = new FungibleToken(ZkUsdEngine.ZKUSD_TOKEN_ADDRESS);
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
 
     //Get the liquidator
     const liquidator = this.sender.getAndRequireSignature();
