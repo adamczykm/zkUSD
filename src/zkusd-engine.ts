@@ -54,6 +54,7 @@ import {
   MintZkUsdEvent,
   BurnZkUsdEvent,
   LiquidateEvent,
+  VaultOwnerUpdatedEvent,
 } from './events.js';
 
 /**
@@ -132,6 +133,7 @@ export class ZkUsdEngine
     VerificationKeyUpdated: VerificationKeyUpdatedEvent,
     OracleWhitelistUpdated: OracleWhitelistUpdatedEvent,
     OracleFeeUpdated: OracleFeeUpdated,
+    VaultOwnerUpdated: VaultOwnerUpdatedEvent,
     NewVault: NewVaultEvent,
     DepositCollateral: DepositCollateralEvent,
     RedeemCollateral: RedeemCollateralEvent,
@@ -302,6 +304,40 @@ export class ZkUsdEngine
     const balance = account.balance.getAndRequireEquals();
 
     return balance;
+  }
+
+  /**
+   * @notice  Updates the owner of a vault
+   * @param   vaultAddress The address of the vault to update the owner of
+   * @param   newOwner The new owner of the vault
+   */
+  @method async updateVaultOwner(vaultAddress: PublicKey, newOwner: PublicKey) {
+    //Get signature from the current owner
+    const owner = this.sender.getAndRequireSignature();
+
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
+
+    //Update the owner
+    await vault.updateOwner(newOwner, owner);
+
+    //Get the zkUSD token contract
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
+
+    //We create an account for the owner on the zkUSD token contract (if they don't already have one)
+    await zkUSD.getBalanceOf(newOwner);
+
+    //Emit the VaultOwnerUpdated event
+    this.emitEvent(
+      'VaultOwnerUpdated',
+      new VaultOwnerUpdatedEvent({
+        vaultAddress: vaultAddress,
+        previousOwner: owner,
+        newOwner: newOwner,
+      })
+    );
   }
 
   /**
@@ -1123,7 +1159,9 @@ export class ZkUsdEngine
    */
   @method.returns(Bool)
   public async canChangeAdmin(_admin: PublicKey) {
-    return Bool(false);
+    //We need the admin signature to change the admin
+    await this.ensureAdminSignature();
+    return Bool(true);
   }
 
   /**
@@ -1132,7 +1170,9 @@ export class ZkUsdEngine
    */
   @method.returns(Bool)
   public async canPause(): Promise<Bool> {
-    return Bool(false);
+    //We need the admin signature to pause the token, we will only do this in case of upgrades
+    await this.ensureAdminSignature();
+    return Bool(true);
   }
 
   /**
@@ -1141,6 +1181,8 @@ export class ZkUsdEngine
    */
   @method.returns(Bool)
   public async canResume(): Promise<Bool> {
-    return Bool(false);
+    //We need the admin signature to resume the token
+    await this.ensureAdminSignature();
+    return Bool(true);
   }
 }

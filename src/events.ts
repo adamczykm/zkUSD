@@ -1,5 +1,11 @@
 import { Struct, PublicKey, UInt64, Field } from 'o1js';
 
+export class VaultOwnerUpdatedEvent extends Struct({
+  vaultAddress: PublicKey,
+  previousOwner: PublicKey,
+  newOwner: PublicKey,
+}) {}
+
 export class NewVaultEvent extends Struct({
   vaultAddress: PublicKey,
 }) {}

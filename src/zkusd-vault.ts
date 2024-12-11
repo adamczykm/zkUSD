@@ -55,6 +55,22 @@ export class ZkUsdVault extends SmartContract {
   static MIN_HEALTH_FACTOR = UInt64.from(100); // The minimum health factor that the vault must maintain when adjusted
 
   /**
+   * @notice  This method is used to update the owner of the vault
+   * @param   newOwner - The new owner of the vault
+   * @param   owner - The current owner of the vault
+   */
+  @method public async updateOwner(newOwner: PublicKey, owner: PublicKey) {
+    //Preconditions
+    let vaultOwner = this.owner.getAndRequireEquals();
+
+    //Assert the owner is correct
+    vaultOwner.assertEquals(owner);
+
+    //Update the owner
+    this.owner.set(newOwner);
+  }
+
+  /**
    * @notice  This method is used to deposit collateral into the vault
    * @param   amount - The amount of collateral to deposit
    * @param   secret - The secret of the owner of the vault
