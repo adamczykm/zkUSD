@@ -1,7 +1,7 @@
 import { TestHelper, TestAmounts } from '../test-helper.js';
-import { AccountUpdate, Mina, Permissions, UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
-import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import { AccountUpdate, Mina, Permissions } from 'o1js';
+import { ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
 import { ProtocolData } from '../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
@@ -56,7 +56,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
         await testHelper.transaction(
           testHelper.agents.bob.account,
           async () => {
-            await testHelper.engine.contract.liquidate(
+            await testHelper.engine.contract.liquidate2(
               testHelper.agents.alice.vault!.publicKey
             );
           }
@@ -85,7 +85,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       await testHelper.transaction(
         testHelper.agents.charlie.account,
         async () => {
-          await testHelper.engine.contract.liquidate(
+          await testHelper.engine.contract.liquidate2(
             testHelper.agents.alice.vault!.publicKey
           );
         }
@@ -105,7 +105,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
 
     await assert.rejects(async () => {
       await testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.liquidate(
+        await testHelper.engine.contract.liquidate2(
           testHelper.agents.alice.vault!.publicKey
         );
       });
@@ -139,7 +139,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     );
 
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.engine.contract.liquidate(
+      await testHelper.engine.contract.liquidate2(
         testHelper.agents.alice.vault!.publicKey
       );
     });
@@ -176,11 +176,11 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     assert.deepStrictEqual(aliceMinaBalancePostLiq, aliceMinaBalancePreLiq);
   });
 
-  it('should emit the Liquidate event', async () => {
+  it('should emit the Liquidate2 event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    assert.strictEqual(latestEvent.type, 'Liquidate');
+    assert.strictEqual(latestEvent.type, 'Liquidate2');
     assert.deepStrictEqual(
       // @ts-ignore
       latestEvent.event.data.vaultAddress,
@@ -193,7 +193,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     );
     assert.deepStrictEqual(
       // @ts-ignore
-      latestEvent.event.data.vaultCollateralLiquidated,
+      latestEvent.event.data.vaultCollateralLiquidate2d,
       TestAmounts.COLLATERAL_100_MINA
     );
     assert.deepStrictEqual(
@@ -245,7 +245,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
 
     await assert.rejects(async () => {
       await testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.liquidate(
+        await testHelper.engine.contract.liquidate2(
           testHelper.agents.charlie.vault!.publicKey
         );
       });

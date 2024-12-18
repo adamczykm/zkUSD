@@ -677,6 +677,68 @@ export class ZkUsdEngine
       })
     );
   }
+  /**
+   * @notice  Liquidates a vault as long as the health factor is below 100
+   *          This version will split repaid collateral to the liquidator
+   *          and the vault owner part.
+   * @param   vaultAddress The address of the vault to liquidate
+   */
+  @method async liquidate2(vaultAddress: PublicKey) {
+    //Get the vault
+    const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
+
+    //Get the zkUSD token contract
+    const zkUSD = new ZkUsdEngine.FungibleToken(
+      ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
+    );
+
+    //Get the liquidator
+    const liquidator = this.sender.getAndRequireSignature();
+
+    // Get the vault owner
+    const vaultOwner = vault.owner.getAndRequireEquals();
+
+    //Get the price
+    const price = await this.getPrice();
+
+    const { oldVaultState, liquidatorCollateral, vaultOwnerCollateral}
+      = await vault.liquidate2(price);
+
+    //Burn the debt from the liquidator
+    await zkUSD.burn(liquidator, oldVaultState.debtAmount);
+
+    //Send the collateral to the liquidator
+    this.send({
+      to: liquidator,
+      amount: liquidatorCollateral,
+    });
+
+    //Send the collateral to the liquidator
+    this.send({
+      to: vaultOwner,
+      amount: vaultOwnerCollateral,
+    });
+
+    //Update the total deposited collateral
+    const totalDepositedCollateral = AccountUpdate.create(
+      this.address,
+      this.deriveTokenId()
+    );
+    totalDepositedCollateral.balanceChange =
+      Int64.fromUnsigned(oldVaultState.collateralAmount).neg();
+
+    //Emit the Liquidate event
+    this.emitEvent(
+      'Liquidate',
+      new LiquidateEvent({
+        vaultAddress: vaultAddress,
+        liquidator: this.sender.getUnconstrained(),
+        vaultCollateralLiquidated: oldVaultState.collateralAmount,
+        vaultDebtRepaid: oldVaultState.debtAmount,
+        price: price,
+      })
+    );
+  }
 
   /**
    * @notice  Returns the health factor of a vault

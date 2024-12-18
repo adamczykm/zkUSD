@@ -107,3 +107,10 @@ export class VaultState extends Struct({
   debtAmount: UInt64,
   owner: PublicKey,
 }) {}
+
+
+export class LiquidationResults extends Struct({
+  oldVaultState: VaultState,
+  liquidatorCollateral: UInt64,
+  vaultOwnerCollateral: UInt64,
+}) {}
