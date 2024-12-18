@@ -310,7 +310,7 @@ export class ZkUsdVault extends SmartContract {
     return new LiquidationResults( {
       oldVaultState,
       liquidatorCollateral: UInt64.Unsafe.fromField(liquidatorCollateral), // are we okay being usafe here? whats the policy on Field vs UInt64
-      vaultOwnerCollateral: UInt64.Unsafe.fromField(liquidatorCollateral)
+      vaultOwnerCollateral: UInt64.Unsafe.fromField(vaultOwnerCollateral)
     });
   }
 
@@ -410,23 +410,17 @@ export class ZkUsdVault extends SmartContract {
     const  { collateralAmount, liquidatedDebt, usdPrice } = args;
 
     // Calculate the USD value of the collateral
-    const collateralUSD = this.calculateUsdValue(collateralAmount, usdPrice);
+    const liquidatedDebtMina = this.calculateMinaValue(liquidatedDebt, usdPrice);
 
-    const liquidatorMaxCollateralUSD = this.fieldIntegerDiv(liquidatedDebt.mul(
+    const liquidatorMaxCollateral = this.fieldIntegerDiv(liquidatedDebtMina.mul(
       ZkUsdVault.LIQUIDATION_BONUS_RATIO
     ), Field(100));
 
     // Calculate the USD value of the collateral that the liquidator will get
-    const liquidatorCollateralUSD = Provable.if(
-      collateralUSD.greaterThanOrEqual(liquidatorMaxCollateralUSD),
-      liquidatorMaxCollateralUSD,
-      collateralUSD
-    );
-
-    // Calculate the collateral in MINA that the liquidator will get
-    const liquidatorCollateral = this.calculateMinaValue(
-      liquidatorCollateralUSD,
-      usdPrice
+    const liquidatorCollateral = Provable.if(
+      collateralAmount.greaterThanOrEqual(liquidatorMaxCollateral),
+      liquidatorMaxCollateral,
+      collateralAmount
     );
 
     // Calculate the collateral amount that the vault owner will get

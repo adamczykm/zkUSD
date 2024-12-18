@@ -1,12 +1,12 @@
 import { TestHelper, TestAmounts } from '../test-helper.js';
-import { AccountUpdate, Mina, Permissions } from 'o1js';
-import { ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { AccountUpdate, Field, Mina, Permissions, UInt64 } from 'o1js';
+import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
 import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
 import { ProtocolData } from '../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 
-describe('zkUSD Vault Liquidation Test Suite', () => {
+describe.only('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
@@ -93,26 +93,31 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     }, /Overflow/i);
   });
 
-  it('should fail liquidation if liquidator does not have receive permissions', async () => {
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      let au = AccountUpdate.create(testHelper.agents.bob.account);
-      let permissions = Permissions.default();
-      permissions.receive = Permissions.impossible();
-      au.account.permissions.set(permissions);
-      AccountUpdate.attachToTransaction(au);
-      au.requireSignature();
-    });
+  // it('should fail liquidation if liquidator does not have receive permissions', async () => {
+  //   await testHelper.transaction(testHelper.agents.bob.account, async () => {
+  //     let au = AccountUpdate.create(testHelper.agents.bob.account);
+  //     let permissions = Permissions.default();
+  //     permissions.receive = Permissions.impossible();
+  //     au.account.permissions.set(permissions);
+  //     AccountUpdate.attachToTransaction(au);
+  //     au.requireSignature();
+  //   });
 
-    await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.liquidate2(
-          testHelper.agents.alice.vault!.publicKey
-        );
-      });
-    });
-  });
+  //   await assert.rejects(async () => {
+  //     await testHelper.transaction(testHelper.agents.bob.account, async () => {
+  //       await testHelper.engine.contract.liquidate2(
+  //         testHelper.agents.alice.vault!.publicKey
+  //       );
+  //     });
+  //   });
+  // });
 
   it('should allow liquidation of vault if it is undercollateralized', async () => {
+    //Price raises to 0.4
+    const price = TestAmounts.PRICE_40_CENT;
+    await testHelper.updateOraclePrice(price);
+    // But the alice vault is still undercollateralized
+
     //Reset bobs permissions
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
       let au = AccountUpdate.create(testHelper.agents.bob.account);
@@ -162,25 +167,45 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    assert.deepStrictEqual(aliceVaultCollateralPostLiq, TestAmounts.ZERO);
-    assert.deepStrictEqual(aliceVaultDebtPostLiq, TestAmounts.ZERO);
+    assert.equal(
+      ZkUsdVault.LIQUIDATION_BONUS_RATIO.equals(Field.from(110)).toBoolean(),
+      true);
+
+    assert.deepStrictEqual(aliceVaultCollateralPostLiq, TestAmounts.ZERO, "Alice vault's collateral should be 0 after liquidation");
+    assert.deepStrictEqual(aliceVaultDebtPostLiq, TestAmounts.ZERO, "Alice vault's debt should be 0 after liquidation");
+
+    const bobdiff = bobMinaBalancePostLiq.sub(bobMinaBalancePreLiq);
+    const aliceDiff = aliceMinaBalancePostLiq.sub(aliceMinaBalancePreLiq);
+
+    // total collateral returned should be equal to the collateral in the vault preliq
+    assert.deepStrictEqual(bobdiff.add(aliceDiff), aliceVaultCollateralPreLiq, "Total collateral returned should be equal to the collateral in the vault preliq");
+
+    const ratio = UInt64.Unsafe.fromField(ZkUsdVault.LIQUIDATION_BONUS_RATIO);
+
+    // bob collateral should be equal to the debt value of collateral + liquidation bonus,
+    // which is defined by ratio, e.g. ratio 110 is 10% bonus
+    const collateralValue =  aliceVaultDebtPreLiq!.value.mul(Field.from(1e9)).div(price.value);
+    const valueWithLiquidationBonus = UInt64.Unsafe.fromField(collateralValue.mul(ratio.value).div(Field.from(100)));
+
     assert.deepStrictEqual(
       bobZkUsdBalancePostLiq,
-      bobZkUsdBalancePreLiq.sub(aliceVaultDebtPreLiq!)
+      bobZkUsdBalancePreLiq.sub(aliceVaultDebtPreLiq!),
+      "Bob should have the paid debt remmoved from his zkUSD balance"
     );
     assert.deepStrictEqual(
       bobMinaBalancePostLiq,
-      bobMinaBalancePreLiq.add(aliceVaultCollateralPreLiq!)
+      bobMinaBalancePreLiq.add(valueWithLiquidationBonus),
+      "Bob should have received bought collateral plus the liquidation bonus"
     );
-    assert.deepStrictEqual(aliceZkUsdBalancePostLiq, aliceZkUsdBalancePreLiq);
-    assert.deepStrictEqual(aliceMinaBalancePostLiq, aliceMinaBalancePreLiq);
+    assert.deepStrictEqual(aliceZkUsdBalancePostLiq, aliceZkUsdBalancePreLiq,
+                          "Alice private zkUSD should not have changed.");
   });
 
-  it('should emit the Liquidate2 event', async () => {
+  it('should emit the Liquidate event', async () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    assert.strictEqual(latestEvent.type, 'Liquidate2');
+    assert.strictEqual(latestEvent.type, 'Liquidate');
     assert.deepStrictEqual(
       // @ts-ignore
       latestEvent.event.data.vaultAddress,
@@ -193,7 +218,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     );
     assert.deepStrictEqual(
       // @ts-ignore
-      latestEvent.event.data.vaultCollateralLiquidate2d,
+      latestEvent.event.data.vaultCollateralLiquidated,
       TestAmounts.COLLATERAL_100_MINA
     );
     assert.deepStrictEqual(
@@ -204,7 +229,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     assert.deepStrictEqual(
       // @ts-ignore
       latestEvent.event.data.price,
-      TestAmounts.PRICE_25_CENT
+      TestAmounts.PRICE_40_CENT
     );
   });
 

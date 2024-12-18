@@ -599,7 +599,9 @@ export class ZkUsdEngine
     const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
     //Get the owner of the zkUSD
-    const owner = this.sender.getAndRequireSignature();
+    // we have sender signature from zkUSD.burn
+    // TODO verify
+    const owner = this.sender.getUnconstrained();
 
     //Get the zkUSD token contract
     const zkUSD = new ZkUsdEngine.FungibleToken(
@@ -640,8 +642,10 @@ export class ZkUsdEngine
       ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
     );
 
-    //Get the liquidator
-    const liquidator = this.sender.getAndRequireSignature();
+    // Get the liquidator
+    // NOTE. we have sender signature from zkUSD.burn
+    //       so we can use unconstrained
+    const liquidator = this.sender.getUnconstrained();
 
     //Get the price
     const price = await this.getPrice();
@@ -692,8 +696,10 @@ export class ZkUsdEngine
       ZkUsdEngine.ZKUSD_TOKEN_ADDRESS
     );
 
-    //Get the liquidator
-    const liquidator = this.sender.getAndRequireSignature();
+    // Get the liquidator
+    // NOTE. we have sender signature from zkUSD.burn
+    //       so we can use unconstrained
+    const liquidator = this.sender.getUnconstrained();
 
     // Get the vault owner
     const vaultOwner = vault.owner.getAndRequireEquals();
@@ -703,6 +709,8 @@ export class ZkUsdEngine
 
     const { oldVaultState, liquidatorCollateral, vaultOwnerCollateral}
       = await vault.liquidate2(price);
+
+    oldVaultState.collateralAmount.assertEquals(liquidatorCollateral.add(vaultOwnerCollateral));
 
     //Burn the debt from the liquidator
     await zkUSD.burn(liquidator, oldVaultState.debtAmount);

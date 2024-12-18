@@ -70,6 +70,7 @@ export class TestAmounts {
   // Price amounts
   static PRICE_0_USD = UInt64.from(0); // 0 USD
   static PRICE_25_CENT = UInt64.from(0.25e9); // 0.25 USD
+  static PRICE_40_CENT = UInt64.from(0.40e9); // 0.40 USD
   static PRICE_48_CENT = UInt64.from(0.48e9); // 0.48 USD
   static PRICE_49_CENT = UInt64.from(0.49e9); // 0.49 USD
   static PRICE_50_CENT = UInt64.from(0.5e9); // 0.50 USD
