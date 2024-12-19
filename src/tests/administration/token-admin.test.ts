@@ -104,18 +104,12 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
       );
     });
     //Alice mints 5 zkUSD
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
-      async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.alice.vault!.publicKey,
-          TestAmounts.DEBT_5_ZKUSD
-        );
-      },
-      {
-        printTx: true,
-      }
-    );
+    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+      await testHelper.engine.contract.mintZkUsd(
+        testHelper.agents.alice.vault!.publicKey,
+        TestAmounts.DEBT_5_ZKUSD
+      );
+    });
 
     await testHelper.transaction(
       testHelper.deployer,
@@ -155,7 +149,6 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
   });
 
   it('should no longer be able to mint from the engine contract', async () => {
-    console.log('New Admin Contract', newAdminContract.publicKey.toBase58());
     await assert.rejects(async () => {
       await testHelper.transaction(
         testHelper.agents.alice.account,
@@ -178,7 +171,6 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
     const aliceBalance = await testHelper.token.contract.getBalanceOf(
       testHelper.agents.alice.account
     );
-    console.log('Alice Balance', aliceBalance.toString());
 
     await testHelper.transaction(
       testHelper.agents.alice.account,
@@ -190,7 +182,6 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
         );
       },
       {
-        printTx: true,
         extraSigners: [newAdmin.privateKey],
       }
     );

@@ -177,8 +177,8 @@ describe('zkUSD Vault Health Factor Calculations Test Suite', () => {
     });
 
     it('should calculate health factor of 100 at exactly 150% collateralization', () => {
-      const collateral = UInt64.from(1.5e9); // 1.5 MINA
-      const debt = UInt64.from(1e9); // 1 zkUSD
+      const collateral = UInt64.from(150e9); // 1.5 MINA
+      const debt = UInt64.from(100e9); // 1 zkUSD
       const price = UInt64.from(1e9); // $1 USD
 
       const healthFactor =

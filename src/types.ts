@@ -61,7 +61,6 @@ export class ProtocolData extends Struct({
     params: {
       admin?: PublicKey;
       oracleFlatFee?: UInt64;
-
       emergencyStop?: Bool;
     } = {}
   ): ProtocolData {

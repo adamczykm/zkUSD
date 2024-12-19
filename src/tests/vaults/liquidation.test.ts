@@ -138,11 +138,17 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
       testHelper.agents.alice.account
     );
 
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.engine.contract.liquidate(
-        testHelper.agents.alice.vault!.publicKey
-      );
-    });
+    await testHelper.transaction(
+      testHelper.agents.bob.account,
+      async () => {
+        await testHelper.engine.contract.liquidate(
+          testHelper.agents.alice.vault!.publicKey
+        );
+      },
+      {
+        printTx: true,
+      }
+    );
 
     const aliceVaultCollateralPostLiq =
       await testHelper.agents.alice.vault?.contract.collateralAmount.fetch();
@@ -241,7 +247,6 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const protocolDataPacked =
       await testHelper.engine.contract.protocolDataPacked.fetch();
     const protocolData = ProtocolData.unpack(protocolDataPacked!);
-    console.log('Stopped', protocolData.emergencyStop.toString());
 
     await assert.rejects(async () => {
       await testHelper.transaction(testHelper.agents.bob.account, async () => {

@@ -18,8 +18,8 @@
     "buildw": "tsc --watch",
     "coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "format": "prettier --write --ignore-unknown **/*",
-    "test": "NODE_NO_WARNINGS=1 node --loader=ts-node/esm --enable-source-maps -r dotenv/config --require dotenv/config --env-file=.env --test",
-    "testw": "node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
+    "test": "npm run build && NODE_NO_WARNINGS=1 node --loader=ts-node/esm --enable-source-maps --test",
+    "testw": "npm run build && node --experimental-vm-modules node_modules/jest/bin/jest.js --watch",
     "lint": "npx eslint src/* --fix"
   },
   "devDependencies": {

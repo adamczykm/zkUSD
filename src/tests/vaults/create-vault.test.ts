@@ -19,9 +19,6 @@ describe('zkUSD Deployment Test Suite', () => {
     await testHelper.initChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie', 'david', 'eve']);
-
-    const contractEvents = await testHelper.engine.contract.fetchEvents();
-    console.log('Contract events after deployment', contractEvents);
   });
 
   it('should create vaults', async () => {
