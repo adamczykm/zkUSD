@@ -1,5 +1,5 @@
 import { TestHelper, TestAmounts } from '../test-helper.js';
-import { UInt64 } from 'o1js';
+import { AccountUpdate, Mina, PrivateKey, PublicKey, UInt64 } from 'o1js';
 import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
 import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
 import { describe, it, before } from 'node:test';

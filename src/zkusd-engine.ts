@@ -190,6 +190,9 @@ export class ZkUsdEngine
     permissions.send = Permissions.none();
     permissions.setPermissions = Permissions.impossible();
     au.account.permissions.set(permissions);
+
+    //Here we can set the editState permission to none because these permissions are set
+    //on a token account which means all updates have to be approved by the engine
     permissions.editState = Permissions.none();
 
     // //Set up the master oracle to track the oracle funds and manage the fallback price
@@ -220,7 +223,6 @@ export class ZkUsdEngine
     masterOracle.body.update.appState[1].isSome = Bool(true);
 
     masterOracle.account.permissions.set(permissions);
-    this.self.approve(masterOracle);
 
     //Set up the oracle price trackers
     const evenOraclePriceTracker = AccountUpdate.createSigned(
@@ -399,7 +401,7 @@ export class ZkUsdEngine
         setVerificationKey:
           Permissions.VerificationKey.impossibleDuringCurrentVersion(),
         setPermissions: Permissions.impossible(),
-        access: Permissions.proof(),
+        access: Permissions.proof(), //Should this be none or proof?
         setZkappUri: Permissions.none(),
         setTokenSymbol: Permissions.none(),
       },
@@ -859,8 +861,6 @@ export class ZkUsdEngine
 
     oracleFundsTrackerUpdate.balanceChange = Int64.fromUnsigned(amount);
 
-    this.self.approve(oracleFundsTrackerUpdate);
-
     //Create the account update for the deposit
     const depositUpdate = AccountUpdate.createSigned(
       this.sender.getUnconstrained()
@@ -951,8 +951,6 @@ export class ZkUsdEngine
         isSome: Bool(true),
         value: PriceSubmissionPacked.toFields(submission)[0],
       };
-
-      this.self.approve(minaPriceUpdate);
     }
 
     const oracleFundsTracker = AccountUpdate.create(
@@ -961,8 +959,6 @@ export class ZkUsdEngine
     );
 
     oracleFundsTracker.balanceChange = Int64.fromUnsigned(oracleFee).neg();
-
-    this.self.approve(oracleFundsTracker);
 
     //TRANSACTION FAILS IF WE DONT HAVE AVAILABLE ORACLE FUNDS
 

@@ -103,12 +103,18 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     const oracleBalanceBefore = Mina.getBalance(oracle.publicKey);
 
     // Submit price from oracle
-    await testHelper.transaction(oracle, async () => {
-      await testHelper.engine.contract.submitPrice(
-        TestAmounts.PRICE_25_CENT,
-        testHelper.whitelist
-      );
-    });
+    await testHelper.transaction(
+      oracle,
+      async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          testHelper.whitelist
+        );
+      },
+      {
+        printTx: true,
+      }
+    );
 
     // Get oracle's balance after submission
     const oracleBalanceAfter = Mina.getBalance(oracle.publicKey);

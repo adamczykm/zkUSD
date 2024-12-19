@@ -1,6 +1,19 @@
-import { AccountUpdate, Field, Mina, PrivateKey, UInt32, UInt64 } from 'o1js';
+import {
+  AccountUpdate,
+  Bool,
+  Field,
+  Mina,
+  PrivateKey,
+  UInt32,
+  UInt64,
+} from 'o1js';
 import { TestAmounts, TestHelper } from '../test-helper.js';
-import { OracleWhitelist, PriceSubmission, ProtocolData } from '../../types.js';
+import {
+  OracleWhitelist,
+  PriceSubmission,
+  PriceSubmissionPacked,
+  ProtocolData,
+} from '../../types.js';
 import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert';
@@ -572,5 +585,32 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       });
     }, /Overflow/i);
+  });
+
+  it('should not allow us to edit the state of the price tracker accounts manually', async () => {
+    const trackerAddress = getWriteTrackerAddress();
+    const tracker = new ZkUsdPriceTracker(
+      trackerAddress,
+      testHelper.engine.contract.deriveTokenId()
+    );
+
+    await assert.rejects(async () => {
+      await testHelper.transaction(testHelper.deployer, async () => {
+        const accountUpdate = AccountUpdate.create(
+          trackerAddress,
+          testHelper.engine.contract.deriveTokenId()
+        );
+
+        const submission = PriceSubmission.new(
+          UInt64.from(1e9),
+          UInt32.from(1)
+        ).pack();
+
+        accountUpdate.body.update.appState[0] = {
+          isSome: Bool(true),
+          value: PriceSubmissionPacked.toFields(submission)[0],
+        };
+      });
+    }, /Top-level account update can not use or pass on token permissions/i);
   });
 });
