@@ -10,6 +10,7 @@ import {
   UInt64,
   Experimental,
   UInt32,
+  Lightnet,
 } from 'o1js';
 import { OracleWhitelist, ProtocolData } from '../types.js';
 import { ZkUsdEngine, ZkUsdEngineDeployProps } from '../zkusd-engine.js';
@@ -158,7 +159,23 @@ export class TestHelper {
     return PrivateKey.randomKeypair();
   }
 
-  async initChain() {
+  async initChain(useLightnet: boolean = false) {
+    if (useLightnet) {
+      const network = Mina.Network({
+        mina: 'http://localhost:8080/graphql',
+        lightnetAccountManager: 'http://localhost:8181',
+      });
+
+      Mina.setActiveInstance(network);
+
+      // Get a funded account from Lightnet for deployment
+      const keyPair = await Lightnet.acquireKeyPair();
+
+      this.deployer = Object.assign(keyPair.publicKey, {
+        privateKey: keyPair.privateKey,
+      }) as Mina.TestPublicKey;
+    } else {
+    }
     this.Local = await Mina.LocalBlockchain({
       proofsEnabled: TestHelper.proofsEnabled,
     });
