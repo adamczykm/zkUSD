@@ -6,7 +6,7 @@ import { ProtocolData } from '../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 
-describe.only('zkUSD Vault Liquidation Test Suite', () => {
+describe('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
@@ -56,7 +56,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
         await testHelper.transaction(
           testHelper.agents.bob.account,
           async () => {
-            await testHelper.engine.contract.liquidate2(
+            await testHelper.engine.contract.liquidate(
               testHelper.agents.alice.vault!.publicKey
             );
           }
@@ -70,7 +70,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
 
   it('should fail liquidation if liquidator does not have sufficent zkUsd', async () => {
     //Price drops to 0.25
-    await testHelper.updateOraclePrice(TestAmounts.PRICE_25_CENT);
+    await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_25_CENT);
 
     //Bob transfers 1 zkUSD to Charlie
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
@@ -85,7 +85,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
       await testHelper.transaction(
         testHelper.agents.charlie.account,
         async () => {
-          await testHelper.engine.contract.liquidate2(
+          await testHelper.engine.contract.liquidate(
             testHelper.agents.alice.vault!.publicKey
           );
         }
@@ -105,7 +105,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
 
   //   await assert.rejects(async () => {
   //     await testHelper.transaction(testHelper.agents.bob.account, async () => {
-  //       await testHelper.engine.contract.liquidate2(
+  //       await testHelper.engine.contract.liquidate(
   //         testHelper.agents.alice.vault!.publicKey
   //       );
   //     });
@@ -115,7 +115,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
   it('should allow liquidation of vault if it is undercollateralized', async () => {
     //Price raises to 0.4
     const price = TestAmounts.PRICE_40_CENT;
-    await testHelper.updateOraclePrice(price);
+    await testHelper.updateOracleMinaPrice(price);
     // But the alice vault is still undercollateralized
 
     //Reset bobs permissions
@@ -144,7 +144,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
     );
 
     await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      await testHelper.engine.contract.liquidate2(
+      await testHelper.engine.contract.liquidate(
         testHelper.agents.alice.vault!.publicKey
       );
     });
@@ -235,7 +235,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
 
   it('Should fail if the price feed is in emergency mode', async () => {
     // Drop price to make vault eligible for liquidation
-    await testHelper.updateOraclePrice(TestAmounts.PRICE_2_USD);
+    await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_2_USD);
 
     // Set up Alice's vault with collateral and debt
     await testHelper.transaction(
@@ -259,7 +259,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
     );
 
     // Drop price to make vault eligible for liquidation
-    await testHelper.updateOraclePrice(TestAmounts.PRICE_25_CENT);
+    await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_25_CENT);
 
     await testHelper.stopTheProtocol();
 
@@ -270,7 +270,7 @@ describe.only('zkUSD Vault Liquidation Test Suite', () => {
 
     await assert.rejects(async () => {
       await testHelper.transaction(testHelper.agents.bob.account, async () => {
-        await testHelper.engine.contract.liquidate2(
+        await testHelper.engine.contract.liquidate(
           testHelper.agents.charlie.vault!.publicKey
         );
       });

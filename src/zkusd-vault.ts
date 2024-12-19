@@ -97,16 +97,16 @@ export class ZkUsdVault extends SmartContract {
   }
 
   /**
-   * @notice  This method is used to mint zkUSD by the vault
-   * @param   recipient - The recipient of the zkUSD
+   * @notice  This method is used to issue zkUSD to the vault
    * @param   amount - The amount of zkUSD to mint
-   * @param   secret - The secret of the owner of the vault
+   * @param   owner - The vault owner
+   * @param   minaPrice - The MINA/USD price
    */
   @method.returns(VaultState)
   public async mintZkUsd(
     amount: UInt64,
     owner: PublicKey,
-    price: UInt64
+    minaPrice: UInt64
   ): Promise<VaultState> {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
@@ -123,7 +123,7 @@ export class ZkUsdVault extends SmartContract {
     const healthFactor = this.calculateHealthFactor(
       collateralAmount,
       debtAmount.add(amount), // Add the amount they want to mint to the debt
-      price
+      minaPrice
     );
 
     //Assert the health factor is greater than the minimum health factor
@@ -144,14 +144,15 @@ export class ZkUsdVault extends SmartContract {
 
   /**
    * @notice  This method is used to redeem collateral from the vault
-   * @param   amount - The amount of collateral to redeem
-   * @param   secret - The secret of the owner of the vault
+   * @param   amount - The amount of zkUSD to mint
+   * @param   owner - The vault owner
+   * @param   minaPrice - The MINA/USD price
    */
   @method.returns(VaultState)
   public async redeemCollateral(
     amount: UInt64,
     owner: PublicKey,
-    price: UInt64
+    minaPrice: UInt64
   ) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
@@ -177,7 +178,7 @@ export class ZkUsdVault extends SmartContract {
     const healthFactor = this.calculateHealthFactor(
       remainingCollateral,
       debtAmount,
-      price
+      minaPrice
     );
 
     //Assert the health factor is greater than the minimum health factor
@@ -235,7 +236,7 @@ export class ZkUsdVault extends SmartContract {
    *          as long as the health factor is less than the minimum health factor. The liquidator receives the collateral in return.
    */
   @method.returns(VaultState)
-  public async liquidate(price: UInt64) {
+  public async liquidate(minaPrice: UInt64) {
     //Preconditions
     let collateralAmount = this.collateralAmount.getAndRequireEquals();
     let debtAmount = this.debtAmount.getAndRequireEquals();
@@ -244,7 +245,7 @@ export class ZkUsdVault extends SmartContract {
     const healthFactor = this.calculateHealthFactor(
       collateralAmount,
       debtAmount,
-      price
+      minaPrice
     );
 
     //Assert the health factor is less than the minimum health factor
@@ -272,7 +273,7 @@ export class ZkUsdVault extends SmartContract {
    *          as long as the health factor is less than the minimum health factor. The liquidator receives the collateral in return.
    */
   @method.returns(LiquidationResults)
-  public async liquidate2(usdPrice: UInt64) {
+  public async liquidate2(minaPrice: UInt64) {
     //Preconditions
     const collateralAmount = this.collateralAmount.getAndRequireEquals();
     const debtAmount = this.debtAmount.getAndRequireEquals();
@@ -281,7 +282,7 @@ export class ZkUsdVault extends SmartContract {
     const healthFactor = this.calculateHealthFactor(
       collateralAmount,
       debtAmount,
-      usdPrice
+      minaPrice
     );
 
     //Assert the health factor is less than the minimum health factor
@@ -298,7 +299,7 @@ export class ZkUsdVault extends SmartContract {
 
     // compute the collateral to be sent to the liquidator and the vault owner
     const  { liquidatorCollateral, vaultOwnerCollateral } = await this.computeLiquidationAmounts(
-      {collateralAmount: collateralAmount.value, liquidatedDebt: debtAmount.value, usdPrice: usdPrice.value});
+      {collateralAmount: collateralAmount.value, liquidatedDebt: debtAmount.value, minaPrice: minaPrice.value});
 
     //Return the vault state before liquidation
     const oldVaultState = {
@@ -317,14 +318,14 @@ export class ZkUsdVault extends SmartContract {
 
   /**
    * @notice  This method is used to get the health factor of the vault
-   * @param   price - The price of the collateral
+   * @param   minaPrice - MINA/USD price
    * @returns The health factor of the vault
    */
   @method.returns(UInt64)
-  public async getHealthFactor(price: UInt64): Promise<UInt64> {
+  public async getHealthFactor(minaPrice: UInt64): Promise<UInt64> {
     const collateralAmount = this.collateralAmount.getAndRequireEquals();
     const debtAmount = this.debtAmount.getAndRequireEquals();
-    return this.calculateHealthFactor(collateralAmount, debtAmount, price);
+    return this.calculateHealthFactor(collateralAmount, debtAmount, minaPrice);
   }
 
   /**
@@ -337,15 +338,15 @@ export class ZkUsdVault extends SmartContract {
    *
    * @param   collateralAmount - The amount of collateral
    * @param   debtAmount - The amount of debt
-   * @param   price - The price of the collateral #TODO: is this factual? the working is a bit unambiguous
+   * @param   minaPrice - MINA/USD price
    * @returns The health factor of the vault
    */
   public calculateHealthFactor(
     collateralAmount: UInt64,
     debtAmount: UInt64,
-    price: UInt64
+    minaPrice: UInt64
   ): UInt64 {
-    const collateralValue = this.calculateUsdValue(collateralAmount.value, price.value);
+    const collateralValue = this.calculateUsdValue(collateralAmount.value, minaPrice.value);
     const maxAllowedDebt = this.calculateMaxAllowedDebt(collateralValue);
     const debtInFields = debtAmount.toFields()[0];
     return UInt64.fromFields([this.safeDiv(maxAllowedDebt, debtInFields)]);
@@ -354,21 +355,21 @@ export class ZkUsdVault extends SmartContract {
   /**
    * @notice  This method is used to calculate the USD value of the collateral
    * @param   amount - The amount of collateral
-   * @param   price - The price of the collateral #TODO: is this factual? the working is a bit unambiguous
+   * @param   minaPrice - MINA/USD price
    * @returns The USD value of the collateral
    */
-  private calculateUsdValue(amount: Field, price: Field): Field {
-    return this.fieldIntegerDiv(amount.mul(price), ZkUsdVault.UNIT_PRECISION);
+  private calculateUsdValue(amount: Field, minaPrice: Field): Field {
+    return this.fieldIntegerDiv(amount.mul(minaPrice), ZkUsdVault.UNIT_PRECISION);
   }
 
   /**
    * @notice  Calculates the equivalent MINA value for a given USD amount based on the current USD price.
    * @param   usdValue - The USD amount to be converted.
-   * @param   usdPrice - The current price of USD in terms of MINA.
+   * @param   minaPrice - The current MINA/USD price.
    * @returns The calculated MINA value corresponding to the provided USD amount.
    */
-  private calculateMinaValue(usdValue: Field, usdPrice: Field): Field {
-    return this.fieldIntegerDiv(usdValue.mul(ZkUsdVault.UNIT_PRECISION), usdPrice);
+  private calculateMinaValue(usdValue: Field, minaPrice: Field): Field {
+    return this.fieldIntegerDiv(usdValue.mul(ZkUsdVault.UNIT_PRECISION), minaPrice);
 }
 
   /**
@@ -395,7 +396,7 @@ export class ZkUsdVault extends SmartContract {
   * @param   args - An object containing the following properties:
   *           - collateralAmount: The total amount of collateral in the vault (UInt64).
   *           - liquidatedDebt: The amount of debt to be liquidated from the vault (UInt64).
-  *           - usdPrice: The USD price of the collateral (UInt64).
+  *           - minaPrice: The USD price of the collateral (UInt64).
   * @returns A promise that resolves to an object containing:
   *           - liquidatorCollateral: The amount of collateral to be sent to the liquidator.
   *           - ownerCollateral: The remaining collateral to be returned to the vault owner.
@@ -404,13 +405,13 @@ export class ZkUsdVault extends SmartContract {
     args:
       { collateralAmount: Field
       , liquidatedDebt: Field
-      , usdPrice: Field}
+      , minaPrice: Field}
   ) {
     // TODO verify rounding and precision
-    const  { collateralAmount, liquidatedDebt, usdPrice } = args;
+    const  { collateralAmount, liquidatedDebt, minaPrice } = args;
 
     // Calculate the USD value of the collateral
-    const liquidatedDebtMina = this.calculateMinaValue(liquidatedDebt, usdPrice);
+    const liquidatedDebtMina = this.calculateMinaValue(liquidatedDebt, minaPrice);
 
     const liquidatorMaxCollateral = this.fieldIntegerDiv(liquidatedDebtMina.mul(
       ZkUsdVault.LIQUIDATION_BONUS_RATIO
