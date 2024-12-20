@@ -16,6 +16,7 @@ import { ZkUsdVault } from '../zkusd-vault.js';
 import { FungibleTokenContract } from '@minatokens/token';
 import { ZkUsdMasterOracle } from '../zkusd-master-oracle.js';
 import { ZkUsdPriceTracker } from '../zkusd-price-tracker.js';
+import { MinaNetworkInstance, initBlockchain } from '../mina.js';
 
 interface TransactionOptions {
   printTx?: boolean;
@@ -24,13 +25,17 @@ interface TransactionOptions {
   printAccountUpdates?: boolean;
 }
 
+interface ChainOptions {
+  useLightnet?: boolean;
+}
+
 interface ContractInstance<T> {
   contract: T extends new (...args: any[]) => infer R ? R : T;
   publicKey: PublicKey;
   privateKey: PrivateKey;
 }
 interface Agent {
-  account: Mina.TestPublicKey;
+  keys: KeyPair;
   vault?: {
     contract: ZkUsdVault;
     publicKey: PublicKey;
@@ -82,7 +87,7 @@ interface KeyPair {
 }
 
 export class TestHelper {
-  deployer: Mina.TestPublicKey;
+  deployer: KeyPair;
   agents: Record<string, Agent> = {};
   oracles: Record<string, KeyPair> = {};
   token: ContractInstance<ReturnType<typeof FungibleTokenContract>>;
@@ -92,7 +97,7 @@ export class TestHelper {
   whitelist: OracleWhitelist;
   whitelistedOracles: Map<string, number> = new Map();
   currentAccountIndex: number = 0;
-  Local: Awaited<ReturnType<typeof Mina.LocalBlockchain>>;
+  chain: MinaNetworkInstance;
 
   static proofsEnabled = false;
 
@@ -154,29 +159,13 @@ export class TestHelper {
     return PrivateKey.randomKeypair();
   }
 
-  async initChain(useLightnet: boolean = false) {
-    if (useLightnet) {
-      const network = Mina.Network({
-        mina: 'http://localhost:8080/graphql',
-        lightnetAccountManager: 'http://localhost:8181',
-      });
+  async initChain(options: ChainOptions = {}) {
+    this.chain = await initBlockchain('local');
 
-      Mina.setActiveInstance(network);
+    this.deployer = this.chain.keys[this.currentAccountIndex];
 
-      // Get a funded account from Lightnet for deployment
-      const keyPair = await Lightnet.acquireKeyPair();
-
-      this.deployer = Object.assign(keyPair.publicKey, {
-        key: keyPair.privateKey,
-      }) as Mina.TestPublicKey;
-    } else {
-    }
-    this.Local = await Mina.LocalBlockchain({
-      proofsEnabled: TestHelper.proofsEnabled,
-    });
-    Mina.setActiveInstance(this.Local);
-    this.deployer = this.Local.testAccounts[this.currentAccountIndex];
     this.currentAccountIndex++;
+
     this.whitelist = new OracleWhitelist({
       addresses: Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(PublicKey.empty()),
     });
@@ -189,14 +178,14 @@ export class TestHelper {
 
     names.forEach((name) => {
       this.agents[name] = {
-        account: this.Local.testAccounts[this.currentAccountIndex],
+        keys: this.chain.keys[this.currentAccountIndex],
       };
       this.currentAccountIndex++;
     });
   }
 
   async transaction(
-    sender: Mina.TestPublicKey | KeyPair,
+    sender: KeyPair,
     callback: () => Promise<void>,
     options: TransactionOptions = {}
   ) {
@@ -209,7 +198,7 @@ export class TestHelper {
 
     const tx = await Mina.transaction(
       {
-        sender: 'key' in sender ? sender : sender.publicKey,
+        sender: sender.publicKey,
         ...(fee && { fee }),
       },
       callback
@@ -255,10 +244,7 @@ export class TestHelper {
     }
 
     await tx.prove();
-    tx.sign([
-      ('key' in sender ? sender.key : sender.privateKey) as PrivateKey,
-      ...extraSigners,
-    ]);
+    tx.sign([sender.privateKey, ...extraSigners]);
     const sentTx = await tx.send();
     const txResult = await sentTx.wait();
     if (txResult.status !== 'included') {
@@ -303,7 +289,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 1);
+        AccountUpdate.fundNewAccount(this.deployer.publicKey, 1);
         AccountUpdate.createSigned(TestHelper.protocolAdminKeyPair.publicKey);
       },
       {
@@ -325,7 +311,7 @@ export class TestHelper {
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 3);
+        AccountUpdate.fundNewAccount(this.deployer.publicKey, 3);
         await this.token.contract.deploy({
           symbol: 'zkUSD',
           src: 'TBD',
@@ -347,12 +333,14 @@ export class TestHelper {
       }
     );
 
-    this.Local.setBlockchainLength(UInt32.from(1000));
+    if (this.chain.local) {
+      this.chain.local.setBlockchainLength(UInt32.from(1000));
+    }
 
     await this.transaction(
       this.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(this.deployer, 4);
+        AccountUpdate.fundNewAccount(this.deployer.publicKey, 4);
         await this.engine.contract.initialize();
       },
       {
@@ -383,8 +371,8 @@ export class TestHelper {
     }
 
     await this.transaction(this.deployer, async () => {
-      AccountUpdate.fundNewAccount(this.deployer, 8);
-      const au = AccountUpdate.createSigned(this.deployer);
+      AccountUpdate.fundNewAccount(this.deployer.publicKey, 8);
+      const au = AccountUpdate.createSigned(this.deployer.publicKey);
       for (const [_name, oracle] of Object.entries(this.oracles)) {
         au.send({
           to: oracle.publicKey,
@@ -429,9 +417,9 @@ export class TestHelper {
       };
 
       await this.transaction(
-        this.agents[name].account,
+        this.agents[name].keys,
         async () => {
-          AccountUpdate.fundNewAccount(this.agents[name].account, 2);
+          AccountUpdate.fundNewAccount(this.agents[name].keys.publicKey, 2);
           await this.engine.contract.createVault(
             this.agents[name].vault!.publicKey
           );
@@ -452,18 +440,22 @@ export class TestHelper {
     }
 
     //Move the blockchain forward
-    this.Local.setBlockchainLength(
-      this.Local.getNetworkState().blockchainLength.add(1)
-    );
+    if (this.chain.local) {
+      this.chain.local.setBlockchainLength(
+        this.chain.local.getNetworkState().blockchainLength.add(1)
+      );
+    }
 
     await this.transaction(this.deployer, async () => {
       await this.engine.contract.settlePriceUpdate();
     });
 
     //Move the blockchain forward
-    this.Local.setBlockchainLength(
-      this.Local.getNetworkState().blockchainLength.add(1)
-    );
+    if (this.chain.local) {
+      this.chain.local.setBlockchainLength(
+        this.chain.local.getNetworkState().blockchainLength.add(1)
+      );
+    }
   }
 
   async stopTheProtocol() {

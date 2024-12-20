@@ -18,23 +18,23 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
       );
     });
 
-    //Fund the creation of the new admin account
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
+    //Fund the creation of the new admin keys
+    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      AccountUpdate.fundNewAccount(testHelper.agents.alice.keys.publicKey, 1);
       AccountUpdate.create(newAdmin.publicKey);
     });
   });
 
   it('should allow the admin key to be changed with the current admin key', async () => {
     await testHelper.transaction(
-      testHelper.agents.alice.account,
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
       },
@@ -68,7 +68,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
 
   it('should allow the new admin key to make updates to the protocol vault', async () => {
     await testHelper.transaction(
-      testHelper.agents.alice.account,
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.stopTheProtocol();
       },
@@ -85,7 +85,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
 
     //Resume the protocol
     await testHelper.transaction(
-      testHelper.agents.alice.account,
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.resumeTheProtocol();
       },
@@ -100,12 +100,9 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
 
   it('should not allow the admin key to be updated without the current admin key', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
-        }
-      );
+      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
+      });
     }, /Transaction verification failed/i);
   });
 

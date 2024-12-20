@@ -56,12 +56,9 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
     const newFee = TestAmounts.COLLATERAL_1_MINA;
 
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.updateOracleFee(newFee);
-        }
-      );
+      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.updateOracleFee(newFee);
+      });
     }, /Transaction verification failed/i);
   });
 
@@ -70,11 +67,11 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
 
     await assert.rejects(async () => {
       await testHelper.transaction(
-        testHelper.agents.alice.account,
+        testHelper.agents.alice.keys,
         async () => {
           const sendUpdate = AccountUpdate.create(testHelper.engine.publicKey);
           sendUpdate.send({
-            to: testHelper.agents.alice.account,
+            to: testHelper.agents.alice.keys.publicKey,
             amount: oracleBalanceBefore,
           });
         },

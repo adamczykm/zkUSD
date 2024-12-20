@@ -13,13 +13,13 @@ describe('zkUSD Price Feed Oracle Price Retrieval Test Suite', () => {
   });
 
   it('should retrieve the even price if we are on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_52_CENT);
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_48_CENT);
 
     //odd should be 52 cent, even should be 48 cent
 
-    testHelper.Local.setBlockchainLength(UInt32.from(4));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(4));
 
     const price = await testHelper.engine.contract.getMinaPrice();
 
@@ -27,13 +27,13 @@ describe('zkUSD Price Feed Oracle Price Retrieval Test Suite', () => {
   });
 
   it('should retrieve the odd price if we are on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_52_CENT);
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_48_CENT);
 
     //odd should be 52 cent, even should be 48 cent
 
-    testHelper.Local.setBlockchainLength(UInt32.from(4));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(4));
 
     const price = await testHelper.engine.contract.getMinaPrice();
 

@@ -38,7 +38,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   const getWriteTrackerAddress = () => {
-    const isEven = testHelper.Local.getNetworkState()
+    const isEven = testHelper.chain.local
+      ?.getNetworkState()
       .blockchainLength.mod(2)
       .equals(UInt32.from(0))
       .toBoolean();
@@ -57,7 +58,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     testHelper.whitelistedOracles = new Map(whitelistedOracles);
 
     await testHelper.transaction(
-      testHelper.agents.alice.account,
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.updateOracleWhitelist(
           testHelper.whitelist
@@ -69,7 +70,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     //settle any outstanding actions
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
   });
@@ -99,7 +100,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should submit the price to the even price tracker on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
@@ -130,7 +131,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should submit the price to the odd price tracker on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1001));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1001));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
@@ -194,32 +195,26 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
   it('should not allow a non-whitelisted address to submit a price', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            testHelper.whitelist
-          );
-        }
-      );
+      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          testHelper.whitelist
+        );
+      });
     }, new RegExp(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED));
   });
 
   it('should not allow a different version of the whitelist', async () => {
     const fakeWhitelist = testHelper.whitelist;
-    fakeWhitelist.addresses[0] = testHelper.agents.alice.account;
+    fakeWhitelist.addresses[0] = testHelper.agents.alice.keys.publicKey;
 
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            fakeWhitelist
-          );
-        }
-      );
+      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          fakeWhitelist
+        );
+      });
     }, new RegExp(ZkUsdEngineErrors.INVALID_WHITELIST));
   });
 
@@ -316,7 +311,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the odd price tracker on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1001));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1001));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
@@ -355,8 +350,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     //move block forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const fallbackPrice =
@@ -393,7 +388,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the even fallback price if we are on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1));
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
@@ -416,7 +411,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the odd fallback price if we are on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
     await testHelper.transaction(
       testHelper.deployer,
       async () => {
