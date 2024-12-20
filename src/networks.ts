@@ -1,4 +1,4 @@
-type blockchain = 'local' | 'lighnet';
+type blockchain = 'local' | 'lightnet';
 
 interface MinaNetwork {
   mina: string[];
@@ -20,7 +20,7 @@ const Lightnet: MinaNetwork = {
   mina: ['http://localhost:8080/graphql'],
   archive: ['http://localhost:8282'],
   accountManager: 'http://localhost:8181',
-  chainId: 'lighnet',
+  chainId: 'lightnet',
   name: 'Lightnet',
 };
 

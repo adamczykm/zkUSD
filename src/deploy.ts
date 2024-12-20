@@ -1,0 +1,158 @@
+import { MinaNetworkInstance, initBlockchain } from './mina.js';
+import { ZkUsdMasterOracle } from './contracts/zkusd-master-oracle.js';
+import { ZkUsdPriceTracker } from './contracts/zkusd-price-tracker.js';
+import {
+  ZkUsdEngineContract,
+  ZkUsdEngineDeployProps,
+} from './contracts/zkusd-engine.js';
+import { ZkUsdVault } from './contracts/zkusd-vault.js';
+import { FungibleTokenContract } from '@minatokens/token';
+import { getNetworkKeys } from './config/keys.js';
+import {
+  AccountUpdate,
+  Bool,
+  fetchAccount,
+  Mina,
+  PrivateKey,
+  UInt32,
+  UInt64,
+  UInt8,
+} from 'o1js';
+import { ContractInstance, KeyPair, OracleWhitelist } from './types.js';
+import { transaction } from './utils/transaction.js';
+
+interface DeployedContracts {
+  token: ContractInstance<ReturnType<typeof FungibleTokenContract>>;
+  engine: ContractInstance<ReturnType<typeof ZkUsdEngineContract>>;
+  masterOracle: ContractInstance<ZkUsdMasterOracle>;
+}
+
+export async function deploy(
+  currentNetwork: MinaNetworkInstance,
+  deployer: KeyPair
+): Promise<DeployedContracts> {
+  console.log('Deploying contracts on ', currentNetwork.network.chainId);
+
+  const networkKeys = getNetworkKeys(currentNetwork.network.chainId);
+
+  const ZkUsdEngine = ZkUsdEngineContract(
+    networkKeys.token.publicKey,
+    networkKeys.masterOracle.publicKey,
+    networkKeys.evenOraclePriceTracker.publicKey,
+    networkKeys.oddOraclePriceTracker.publicKey
+  );
+  const FungibleToken = FungibleTokenContract(ZkUsdEngine);
+
+  const token = {
+    contract: new FungibleToken(networkKeys.token.publicKey),
+  };
+
+  const engine = {
+    contract: new ZkUsdEngine(networkKeys.engine.publicKey),
+  };
+
+  const masterOracle = {
+    contract: new ZkUsdMasterOracle(
+      networkKeys.masterOracle.publicKey,
+      engine.contract.deriveTokenId()
+    ),
+  };
+
+  //We always need to compile these contracts
+
+  const vaultVerification = await ZkUsdVault.compile();
+  const vaultVerificationKeyHash = vaultVerification.verificationKey.hash;
+
+  await ZkUsdMasterOracle.compile();
+  console.log(ZkUsdMasterOracle);
+  await ZkUsdPriceTracker.compile();
+
+  if (
+    currentNetwork.local?.proofsEnabled ||
+    currentNetwork.network.chainId !== 'local'
+  ) {
+    console.log('Compiling Engine and Token contracts');
+    console.log(ZkUsdEngine);
+    await ZkUsdEngine.compile();
+    await FungibleToken.compile();
+  }
+
+  //Check whether we have the protocol admin account created
+
+  try {
+    Mina.getAccount(networkKeys.protocolAdmin.publicKey);
+  } catch {
+    await transaction(
+      deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(deployer.publicKey, 1);
+        AccountUpdate.createSigned(networkKeys.protocolAdmin.publicKey);
+      },
+      {
+        extraSigners: [networkKeys.protocolAdmin.privateKey],
+      }
+    );
+  }
+
+  //Think about what we are doing here
+  const engineDeployProps: ZkUsdEngineDeployProps = {
+    initialPrice: UInt64.from(1e9),
+    admin: networkKeys.protocolAdmin.publicKey,
+    oracleFlatFee: UInt64.from(1e9),
+    emergencyStop: Bool(false),
+    vaultVerificationKeyHash: vaultVerificationKeyHash!,
+  };
+
+  await transaction(
+    deployer,
+    async () => {
+      AccountUpdate.fundNewAccount(deployer.publicKey, 3);
+      await token.contract.deploy({
+        symbol: 'zkUSD',
+        src: 'TBD',
+      });
+      await token.contract.initialize(
+        networkKeys.engine.publicKey,
+        UInt8.from(9),
+        Bool(false)
+      );
+      await engine.contract.deploy(engineDeployProps);
+    },
+    {
+      extraSigners: [
+        networkKeys.token.privateKey,
+        networkKeys.engine.privateKey,
+        networkKeys.protocolAdmin.privateKey,
+        networkKeys.evenOraclePriceTracker.privateKey,
+      ],
+    }
+  );
+
+  if (currentNetwork.local) {
+    currentNetwork.local.setBlockchainLength(UInt32.from(1000));
+  }
+
+  await transaction(
+    deployer,
+    async () => {
+      AccountUpdate.fundNewAccount(deployer.publicKey, 4);
+      await engine.contract.initialize();
+    },
+    {
+      printTx: true,
+      extraSigners: [
+        networkKeys.protocolAdmin.privateKey,
+        networkKeys.engine.privateKey,
+        networkKeys.masterOracle.privateKey,
+        networkKeys.evenOraclePriceTracker.privateKey,
+        networkKeys.oddOraclePriceTracker.privateKey,
+      ],
+    }
+  );
+
+  return {
+    token,
+    engine,
+    masterOracle,
+  };
+}

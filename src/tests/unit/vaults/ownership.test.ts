@@ -1,7 +1,8 @@
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 import { Account, AccountUpdate } from 'o1js';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Vault Ownership Test Suite', () => {
   const testHelper = new TestHelper();
@@ -13,7 +14,7 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     // Alice deposits initial collateral
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
@@ -21,7 +22,7 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     });
 
     // Alice mints some zkUSD
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_5_ZKUSD
@@ -30,11 +31,11 @@ describe('zkUSD Vault Ownership Test Suite', () => {
   });
 
   it('should allow the owner to transfer ownership', async () => {
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
+    await transaction(testHelper.agents.alice.keys, async () => {
+      AccountUpdate.fundNewAccount(testHelper.agents.alice.keys.publicKey, 1);
       await testHelper.engine.contract.updateVaultOwner(
         testHelper.agents.alice.vault!.publicKey,
-        testHelper.agents.bob.account
+        testHelper.agents.bob.keys.publicKey
       );
     });
 
@@ -43,7 +44,7 @@ describe('zkUSD Vault Ownership Test Suite', () => {
       await testHelper.agents.alice.vault?.contract.owner.fetch();
     assert.deepStrictEqual(
       vaultOwner?.toBase58(),
-      testHelper.agents.bob.account.toBase58()
+      testHelper.agents.bob.keys.publicKey.toBase58()
     );
   });
 
@@ -60,18 +61,18 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     assert.deepStrictEqual(
       // @ts-ignore
       latestEvent.event.data.previousOwner.toBase58(),
-      testHelper.agents.alice.account.toBase58()
+      testHelper.agents.alice.keys.publicKey.toBase58()
     );
     assert.deepStrictEqual(
       // @ts-ignore
       latestEvent.event.data.newOwner.toBase58(),
-      testHelper.agents.bob.account.toBase58()
+      testHelper.agents.bob.keys.publicKey.toBase58()
     );
   });
 
   it('should allow the new owner to perform vault operations', async () => {
     // Bob (new owner) should be able to deposit collateral
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_50_MINA
@@ -79,7 +80,7 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     });
 
     // Bob should be able to mint zkUSD
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_5_ZKUSD
@@ -105,15 +106,12 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     // Alice (previous owner) should not be able to deposit collateral
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.depositCollateral(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.COLLATERAL_50_MINA
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.depositCollateral(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.COLLATERAL_50_MINA
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, /Field.assertEquals()/i);
@@ -124,15 +122,12 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     // Alice should not be able to mint zkUSD
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.DEBT_5_ZKUSD
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, /Field.assertEquals()/i);
@@ -145,15 +140,12 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     // Charlie (never an owner) should not be able to transfer ownership
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.charlie.account,
-          async () => {
-            await testHelper.engine.contract.updateVaultOwner(
-              testHelper.agents.alice.vault!.publicKey,
-              testHelper.agents.charlie.account
-            );
-          }
-        );
+        await transaction(testHelper.agents.charlie.keys, async () => {
+          await testHelper.engine.contract.updateVaultOwner(
+            testHelper.agents.alice.vault!.publicKey,
+            testHelper.agents.charlie.keys.publicKey
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, /Field.assertEquals()/i);
@@ -164,15 +156,12 @@ describe('zkUSD Vault Ownership Test Suite', () => {
     // Alice (previous owner) should not be able to transfer ownership
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.updateVaultOwner(
-              testHelper.agents.alice.vault!.publicKey,
-              testHelper.agents.alice.account
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.updateVaultOwner(
+            testHelper.agents.alice.vault!.publicKey,
+            testHelper.agents.alice.keys.publicKey
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, /Field.assertEquals()/i);
@@ -183,11 +172,11 @@ describe('zkUSD Vault Ownership Test Suite', () => {
 
   it('should allow multiple ownership transfers', async () => {
     // Bob transfers ownership to Charlie
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      AccountUpdate.fundNewAccount(testHelper.agents.bob.account, 1);
+    await transaction(testHelper.agents.bob.keys, async () => {
+      AccountUpdate.fundNewAccount(testHelper.agents.bob.keys.publicKey, 1);
       await testHelper.engine.contract.updateVaultOwner(
         testHelper.agents.alice.vault!.publicKey,
-        testHelper.agents.charlie.account
+        testHelper.agents.charlie.keys.publicKey
       );
     });
 
@@ -196,25 +185,22 @@ describe('zkUSD Vault Ownership Test Suite', () => {
       await testHelper.agents.alice.vault?.contract.owner.fetch();
     assert.deepStrictEqual(
       vaultOwner?.toBase58(),
-      testHelper.agents.charlie.account.toBase58()
+      testHelper.agents.charlie.keys.publicKey.toBase58()
     );
 
     // Charlie transfers ownership back to Alice
-    await testHelper.transaction(
-      testHelper.agents.charlie.account,
-      async () => {
-        await testHelper.engine.contract.updateVaultOwner(
-          testHelper.agents.alice.vault!.publicKey,
-          testHelper.agents.alice.account
-        );
-      }
-    );
+    await transaction(testHelper.agents.charlie.keys, async () => {
+      await testHelper.engine.contract.updateVaultOwner(
+        testHelper.agents.alice.vault!.publicKey,
+        testHelper.agents.alice.keys.publicKey
+      );
+    });
 
     // Verify Alice is the owner again
     vaultOwner = await testHelper.agents.alice.vault?.contract.owner.fetch();
     assert.deepStrictEqual(
       vaultOwner?.toBase58(),
-      testHelper.agents.alice.account.toBase58()
+      testHelper.agents.alice.keys.publicKey.toBase58()
     );
   });
 });

@@ -1,20 +1,38 @@
-import { Struct, PublicKey, UInt64, Provable, Field, UInt32, Bool } from 'o1js';
+import {
+  Struct,
+  PublicKey,
+  UInt64,
+  Provable,
+  Field,
+  UInt32,
+  Bool,
+  PrivateKey,
+} from 'o1js';
 
-export class PriceFeedAction extends Struct({
+interface KeyPair {
+  privateKey: PrivateKey;
+  publicKey: PublicKey;
+}
+
+interface ContractInstance<T> {
+  contract: T extends new (...args: any[]) => infer R ? R : T;
+}
+
+class PriceFeedAction extends Struct({
   address: PublicKey,
   price: UInt64,
 }) {}
 
-export class PriceState extends Struct({
+class PriceState extends Struct({
   prices: Provable.Array(UInt64, 10),
   count: UInt64,
 }) {}
 
-export class PriceSubmissionPacked extends Struct({
+class PriceSubmissionPacked extends Struct({
   packedData: Field,
 }) {}
 
-export class PriceSubmission extends Struct({
+class PriceSubmission extends Struct({
   price: UInt64,
   blockNumber: UInt32,
 }) {
@@ -43,16 +61,18 @@ export class PriceSubmission extends Struct({
   }
 }
 
-export class ProtocolDataPacked extends Struct({
+class ProtocolDataPacked extends Struct({
   adminX: Field,
   packedData: Field,
 }) {}
 
-export class OracleWhitelist extends Struct({
+class OracleWhitelist extends Struct({
   addresses: Provable.Array(PublicKey, 8),
-}) {}
+}) {
+  static MAX_PARTICIPANTS = 8;
+}
 
-export class ProtocolData extends Struct({
+class ProtocolData extends Struct({
   admin: PublicKey,
   oracleFlatFee: UInt64,
   emergencyStop: Bool,
@@ -101,15 +121,28 @@ export class ProtocolData extends Struct({
   }
 }
 
-export class VaultState extends Struct({
+class VaultState extends Struct({
   collateralAmount: UInt64,
   debtAmount: UInt64,
   owner: PublicKey,
 }) {}
 
-
-export class LiquidationResults extends Struct({
+class LiquidationResults extends Struct({
   oldVaultState: VaultState,
   liquidatorCollateral: UInt64,
   vaultOwnerCollateral: UInt64,
 }) {}
+
+export {
+  KeyPair,
+  PriceFeedAction,
+  PriceState,
+  PriceSubmission,
+  PriceSubmissionPacked,
+  ProtocolData,
+  ProtocolDataPacked,
+  OracleWhitelist,
+  VaultState,
+  LiquidationResults,
+  ContractInstance,
+};

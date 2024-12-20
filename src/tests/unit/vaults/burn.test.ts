@@ -1,8 +1,9 @@
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { AccountUpdate, Field, UInt64 } from 'o1js';
-import { ZkUsdVaultErrors } from '../../zkusd-vault.js';
+import { ZkUsdVaultErrors } from '../../../contracts/zkusd-vault.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Vault Burn Test Suite', () => {
   const testHelper = new TestHelper();
@@ -16,7 +17,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     // Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
@@ -24,7 +25,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     });
 
     // Alice mint 30 zkUSD
-    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_30_ZKUSD
@@ -40,7 +41,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     const vaultStartingDebt =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
 
-    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.burnZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_1_ZKUSD
@@ -92,7 +93,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
 
   it('should fail if burn amount is zero', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      await transaction(testHelper.agents.alice.keys, async () => {
         await testHelper.engine.contract.burnZkUsd(
           testHelper.agents.alice.vault!.publicKey,
           TestAmounts.ZERO
@@ -106,7 +107,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      await transaction(testHelper.agents.alice.keys, async () => {
         await testHelper.engine.contract.burnZkUsd(
           testHelper.agents.alice.vault!.publicKey,
           currentDebt!.add(1)
@@ -117,7 +118,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
 
   it('should fail if burn amount is negative', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      await transaction(testHelper.agents.alice.keys, async () => {
         await testHelper.engine.contract.burnZkUsd(
           testHelper.agents.alice.vault!.publicKey,
           UInt64.from(-1)
@@ -132,7 +133,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
 
     // Perform multiple small burns
     for (let i = 0; i < 3; i++) {
-      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      await transaction(testHelper.agents.alice.keys, async () => {
         await testHelper.engine.contract.burnZkUsd(
           testHelper.agents.alice.vault!.publicKey,
           TestAmounts.DEBT_10_CENT_ZKUSD
@@ -154,7 +155,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     );
 
     //Alice transfers all her zkUSD to Bob
-    await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       AccountUpdate.fundNewAccount(testHelper.agents.alice.keys.publicKey, 1);
       await testHelper.token.contract.transfer(
         testHelper.agents.alice.keys.publicKey,
@@ -164,7 +165,7 @@ describe('zkUSD Vault Burn Test Suite', () => {
     });
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.alice.keys, async () => {
+      await transaction(testHelper.agents.alice.keys, async () => {
         await testHelper.engine.contract.burnZkUsd(
           testHelper.agents.alice.vault!.publicKey,
           TestAmounts.DEBT_10_CENT_ZKUSD

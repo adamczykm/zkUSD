@@ -8,7 +8,7 @@ import {
   method,
   Provable,
 } from 'o1js';
-import { LiquidationResults, VaultState } from './types.js';
+import { LiquidationResults, VaultState } from '../types.js';
 /**
  * @title   zkUSD Collateral Vault contact
  * @notice  This contract tracks the state of a user's vault. It is installed on the token account of the engine.

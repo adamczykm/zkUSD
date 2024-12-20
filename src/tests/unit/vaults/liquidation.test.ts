@@ -1,10 +1,14 @@
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { AccountUpdate, Field, Mina, Permissions, UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
-import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
-import { ProtocolData } from '../../types.js';
+import {
+  ZkUsdVault,
+  ZkUsdVaultErrors,
+} from '../../../contracts/zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
+import { ProtocolData } from '../../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
@@ -18,7 +22,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.createVaults(['alice', 'bob', 'charlie', 'dave']);
 
     // Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
@@ -26,7 +30,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     });
 
     // Bob deposits 900 Mina
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.bob.vault!.publicKey,
         TestAmounts.COLLATERAL_900_MINA
@@ -34,7 +38,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     });
 
     // Alice mint 30 zkUSD
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_30_ZKUSD
@@ -42,7 +46,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     });
 
     //Bob mint 100 zkUSD
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.bob.vault!.publicKey,
         TestAmounts.DEBT_100_ZKUSD
@@ -53,14 +57,11 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   it('should fail if vault is sufficiently collateralized', async () => {
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.bob.account,
-          async () => {
-            await testHelper.engine.contract.liquidate(
-              testHelper.agents.alice.vault!.publicKey
-            );
-          }
-        );
+        await transaction(testHelper.agents.bob.keys, async () => {
+          await testHelper.engine.contract.liquidate(
+            testHelper.agents.alice.vault!.publicKey
+          );
+        });
       },
       {
         message: ZkUsdVaultErrors.HEALTH_FACTOR_TOO_HIGH,
@@ -73,29 +74,26 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_25_CENT);
 
     //Bob transfers 1 zkUSD to Charlie
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.token.contract.transfer(
-        testHelper.agents.bob.account,
-        testHelper.agents.charlie.account,
+        testHelper.agents.bob.keys.publicKey,
+        testHelper.agents.charlie.keys.publicKey,
         TestAmounts.DEBT_1_ZKUSD
       );
     });
 
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.charlie.account,
-        async () => {
-          await testHelper.engine.contract.liquidate(
-            testHelper.agents.alice.vault!.publicKey
-          );
-        }
-      );
+      await transaction(testHelper.agents.charlie.keys, async () => {
+        await testHelper.engine.contract.liquidate(
+          testHelper.agents.alice.vault!.publicKey
+        );
+      });
     }, /Overflow/i);
   });
 
   it('should fail liquidation if liquidator does not have receive permissions', async () => {
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      let au = AccountUpdate.create(testHelper.agents.bob.account);
+    await transaction(testHelper.agents.bob.keys, async () => {
+      let au = AccountUpdate.create(testHelper.agents.bob.keys.publicKey);
       let permissions = Permissions.default();
       permissions.receive = Permissions.impossible();
       au.account.permissions.set(permissions);
@@ -104,7 +102,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     });
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.bob.account, async () => {
+      await transaction(testHelper.agents.bob.keys, async () => {
         await testHelper.engine.contract.liquidate(
           testHelper.agents.alice.vault!.publicKey
         );
@@ -119,8 +117,8 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     // But the alice vault is still undercollateralized
 
     //Reset bobs permissions
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
-      let au = AccountUpdate.create(testHelper.agents.bob.account);
+    await transaction(testHelper.agents.bob.keys, async () => {
+      let au = AccountUpdate.create(testHelper.agents.bob.keys.publicKey);
       let permissions = Permissions.default();
       au.account.permissions.set(permissions);
       AccountUpdate.attachToTransaction(au);
@@ -132,18 +130,20 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const aliceVaultDebtPreLiq =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
     const bobZkUsdBalancePreLiq = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
-    const bobMinaBalancePreLiq = Mina.getBalance(testHelper.agents.bob.account);
+    const bobMinaBalancePreLiq = Mina.getBalance(
+      testHelper.agents.bob.keys.publicKey
+    );
     const aliceZkUsdBalancePreLiq =
       await testHelper.token.contract.getBalanceOf(
-        testHelper.agents.alice.account
+        testHelper.agents.alice.keys.publicKey
       );
     const aliceMinaBalancePreLiq = Mina.getBalance(
-      testHelper.agents.alice.account
+      testHelper.agents.alice.keys.publicKey
     );
 
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.liquidate(
         testHelper.agents.alice.vault!.publicKey
       );
@@ -154,17 +154,17 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const aliceVaultDebtPostLiq =
       await testHelper.agents.alice.vault?.contract.debtAmount.fetch();
     const bobZkUsdBalancePostLiq = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
     const bobMinaBalancePostLiq = Mina.getBalance(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
     const aliceZkUsdBalancePostLiq =
       await testHelper.token.contract.getBalanceOf(
-        testHelper.agents.alice.account
+        testHelper.agents.alice.keys.publicKey
       );
     const aliceMinaBalancePostLiq = Mina.getBalance(
-      testHelper.agents.alice.account
+      testHelper.agents.alice.keys.publicKey
     );
 
     assert.equal(
@@ -242,7 +242,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     assert.strictEqual(
       // @ts-ignore
       latestEvent.event.data.liquidator.toBase58(),
-      testHelper.agents.bob.account.toBase58()
+      testHelper.agents.bob.keys.publicKey.toBase58()
     );
     assert.deepStrictEqual(
       // @ts-ignore
@@ -266,14 +266,14 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_1_USD);
 
     // Setup: Dave deposits 100 MINA and mints 50 zkUSD
-    await testHelper.transaction(testHelper.agents.dave.account, async () => {
+    await transaction(testHelper.agents.dave.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.dave.vault!.publicKey,
         TestAmounts.COLLATERAL_105_MINA
       );
     });
 
-    await testHelper.transaction(testHelper.agents.dave.account, async () => {
+    await transaction(testHelper.agents.dave.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.dave.vault!.publicKey,
         TestAmounts.DEBT_50_ZKUSD
@@ -293,15 +293,17 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const daveVaultDebtPreLiq =
       await testHelper.agents.dave.vault?.contract.debtAmount.fetch();
     const bobZkUsdBalancePreLiq = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
-    const bobMinaBalancePreLiq = Mina.getBalance(testHelper.agents.bob.account);
+    const bobMinaBalancePreLiq = Mina.getBalance(
+      testHelper.agents.bob.keys.publicKey
+    );
     const daveMinaBalancePreLiq = Mina.getBalance(
-      testHelper.agents.dave.account
+      testHelper.agents.dave.keys.publicKey
     );
 
     // Bob liquidates Dave's vault
-    await testHelper.transaction(testHelper.agents.bob.account, async () => {
+    await transaction(testHelper.agents.bob.keys, async () => {
       await testHelper.engine.contract.liquidate(
         testHelper.agents.dave.vault!.publicKey
       );
@@ -312,13 +314,13 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const daveVaultDebtPostLiq =
       await testHelper.agents.dave.vault?.contract.debtAmount.fetch();
     const bobZkUsdBalancePostLiq = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
     const bobMinaBalancePostLiq = Mina.getBalance(
-      testHelper.agents.bob.account
+      testHelper.agents.bob.keys.publicKey
     );
     const daveMinaBalancePostLiq = Mina.getBalance(
-      testHelper.agents.dave.account
+      testHelper.agents.dave.keys.publicKey
     );
 
     // Verify vault is cleared
@@ -360,25 +362,19 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_2_USD);
 
     // Set up Alice's vault with collateral and debt
-    await testHelper.transaction(
-      testHelper.agents.charlie.account,
-      async () => {
-        await testHelper.engine.contract.depositCollateral(
-          testHelper.agents.charlie.vault!.publicKey,
-          TestAmounts.COLLATERAL_1_MINA
-        );
-      }
-    );
+    await transaction(testHelper.agents.charlie.keys, async () => {
+      await testHelper.engine.contract.depositCollateral(
+        testHelper.agents.charlie.vault!.publicKey,
+        TestAmounts.COLLATERAL_1_MINA
+      );
+    });
 
-    await testHelper.transaction(
-      testHelper.agents.charlie.account,
-      async () => {
-        await testHelper.engine.contract.mintZkUsd(
-          testHelper.agents.charlie.vault!.publicKey,
-          TestAmounts.DEBT_50_CENT_ZKUSD
-        );
-      }
-    );
+    await transaction(testHelper.agents.charlie.keys, async () => {
+      await testHelper.engine.contract.mintZkUsd(
+        testHelper.agents.charlie.vault!.publicKey,
+        TestAmounts.DEBT_50_CENT_ZKUSD
+      );
+    });
 
     // Drop price to make vault eligible for liquidation
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_25_CENT);
@@ -390,7 +386,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
     const protocolData = ProtocolData.unpack(protocolDataPacked!);
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.agents.bob.account, async () => {
+      await transaction(testHelper.agents.bob.keys, async () => {
         await testHelper.engine.contract.liquidate(
           testHelper.agents.charlie.vault!.publicKey
         );

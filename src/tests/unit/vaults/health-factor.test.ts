@@ -1,4 +1,4 @@
-import { TestHelper } from '../test-helper.js';
+import { TestHelper } from '../unit-test-helper.js';
 import { UInt64 } from 'o1js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';

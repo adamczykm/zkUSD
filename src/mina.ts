@@ -1,5 +1,12 @@
-import { PublicKey, PrivateKey, Field, CircuitString, Mina } from 'o1js';
-import { networks, blockchain, MinaNetwork, Local } from './networks';
+import {
+  PublicKey,
+  PrivateKey,
+  Field,
+  CircuitString,
+  Mina,
+  Lightnet,
+} from 'o1js';
+import { networks, blockchain, MinaNetwork, Local } from './networks.js';
 
 interface MinaNetworkInstance {
   keys: {
@@ -31,7 +38,7 @@ async function initBlockchain(
 
   if (instance === 'local') {
     const local = await Mina.LocalBlockchain({
-      proofsEnabled: true,
+      proofsEnabled: false,
     });
     Mina.setActiveInstance(local);
     currentNetwork = {
@@ -64,6 +71,15 @@ async function initBlockchain(
     publicKey: PublicKey;
     privateKey: PrivateKey;
   }[] = [];
+
+  // Generate 9 more key pairs to have a total of 10
+  for (let i = 0; i < 9; i++) {
+    const keyPair = await Lightnet.acquireKeyPair();
+    keys.push({
+      publicKey: keyPair.publicKey,
+      privateKey: keyPair.privateKey,
+    });
+  }
 
   currentNetwork = {
     keys: keys,

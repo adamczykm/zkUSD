@@ -7,10 +7,11 @@ import {
   TokenId,
   UInt64,
 } from 'o1js';
-import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Deployment Test Suite', () => {
   const testHelper = new TestHelper();
@@ -46,7 +47,7 @@ describe('zkUSD Deployment Test Suite', () => {
 
   it('should fail to deploy the same vault twice', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
+      await transaction(
         testHelper.agents.alice.keys,
         async () => {
           await testHelper.engine.contract.createVault(

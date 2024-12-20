@@ -1,5 +1,5 @@
 import { UInt32 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper.js';
+import { TestAmounts, TestHelper } from '../unit-test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 

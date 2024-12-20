@@ -1,8 +1,9 @@
 import { Field, Poseidon, PrivateKey, PublicKey } from 'o1js';
-import { TestHelper } from '../test-helper.js';
-import { OracleWhitelist } from '../../types.js';
+import { TestHelper } from '../unit-test-helper.js';
+import { OracleWhitelist } from '../../../types.js';
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
   const testHelper = new TestHelper();
@@ -34,13 +35,13 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     previousWhitelistHash =
       (await testHelper.engine.contract.oracleWhitelistHash.fetch()) as Field;
 
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateOracleWhitelist(whitelist);
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -76,7 +77,7 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     whitelist.addresses[0] = newOracle;
 
     await assert.rejects(
-      testHelper.transaction(testHelper.deployer, async () => {
+      transaction(testHelper.deployer, async () => {
         await testHelper.engine.contract.updateOracleWhitelist(whitelist);
       }),
       /Transaction verification failed/
@@ -91,13 +92,13 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     }
 
     await assert.rejects(
-      testHelper.transaction(
+      transaction(
         testHelper.deployer,
         async () => {
           await testHelper.engine.contract.updateOracleWhitelist(whitelist);
         },
         {
-          extraSigners: [TestHelper.engineKeyPair.privateKey],
+          extraSigners: [testHelper.networkKeys.engine.privateKey],
         }
       ),
       /Expected witnessed values of length 16, got 20./
@@ -108,7 +109,7 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
     testHelper.whitelist.addresses[1] = 'RandomString' as unknown as PublicKey;
 
     await assert.rejects(
-      testHelper.transaction(
+      transaction(
         testHelper.deployer,
         async () => {
           await testHelper.engine.contract.updateOracleWhitelist(
@@ -116,7 +117,7 @@ describe('zkUSD Engine Oracle Whitelist Test Suite', () => {
           );
         },
         {
-          extraSigners: [TestHelper.engineKeyPair.privateKey],
+          extraSigners: [testHelper.networkKeys.engine.privateKey],
         }
       ),
       /Cannot convert undefined to a BigInt/
