@@ -50,6 +50,7 @@ export class TestAmounts {
   // Collateral amounts
   static COLLATERAL_900_MINA = UInt64.from(900e9); // 900 Mina
   static COLLATERAL_200_MINA = UInt64.from(200e9); // 200 Mina
+  static COLLATERAL_105_MINA = UInt64.from(105e9); // 105 Mina
   static COLLATERAL_100_MINA = UInt64.from(100e9); // 100 Mina
   static COLLATERAL_50_MINA = UInt64.from(50e9); // 50 Mina
   static COLLATERAL_2_MINA = UInt64.from(2e9); // 2 Mina
