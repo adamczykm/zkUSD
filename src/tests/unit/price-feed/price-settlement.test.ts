@@ -1,8 +1,9 @@
 import { Mina, UInt32, UInt64 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper.js';
-import { ZkUsdEngine } from '../../zkusd-engine.js';
+import { TestAmounts, TestHelper } from '../unit-test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { OracleWhitelist } from '../../../types.js';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   const testHelper = new TestHelper();
@@ -34,7 +35,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should eventually settle odd price, 3 blocks later, if we are on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1));
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_50_CENT);
 
     const oddPrice = await testHelper.engine.contract.minaPriceOddBlock.fetch();
@@ -46,7 +47,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should eventually settle even price, 3 blocks later, if we are on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
     await testHelper.updateOracleMinaPrice(TestAmounts.PRICE_52_CENT);
 
     const evenPrice =
@@ -59,11 +60,11 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should use the fallback price if oracles havent submitted the price', async () => {
-    await testHelper.transaction(testHelper.deployer, async () => {
+    await transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -71,22 +72,22 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
     //Move the block forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
-    await testHelper.transaction(testHelper.deployer, async () => {
+    await transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
     //Move the block forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const price = await testHelper.engine.contract.getMinaPrice();
@@ -108,7 +109,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     for (let i = 0; i < prices.length; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
-      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           prices[i],
           testHelper.whitelist
@@ -128,16 +129,16 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
       .div(2);
 
     //move the blockchain forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
-    await testHelper.transaction(testHelper.deployer, async () => {
+    await transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const price = await testHelper.engine.contract.getMinaPrice();
@@ -146,7 +147,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should calculate correct median with 4 prices submitted', async () => {
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateOracleWhitelist(
@@ -154,7 +155,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -167,7 +168,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
 
     for (let i = 0; i < 4; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
-      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           prices[i],
           testHelper.whitelist
@@ -176,7 +177,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
     }
 
     //update fallback price
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -184,20 +185,20 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
-    await testHelper.transaction(testHelper.deployer, async () => {
+    await transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const priceBeforeSettlement =
@@ -211,7 +212,7 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   });
 
   it('should handle maximum number of prices correctly', async () => {
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateOracleWhitelist(
@@ -219,11 +220,11 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
-    for (let i = 0; i < ZkUsdEngine.MAX_PARTICIPANTS; i++) {
+    for (let i = 0; i < OracleWhitelist.MAX_PARTICIPANTS; i++) {
       const oracleName = Array.from(testHelper.whitelistedOracles.keys())[i];
       const price = UInt64.from((0.48 + i * 0.01) * 1e9); // Prices from 0.48 to 0.57 USD
       const oracle = testHelper.oracles[oracleName];
@@ -243,16 +244,16 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
         .send();
     }
 
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
-    await testHelper.transaction(testHelper.deployer, async () => {
+    await transaction(testHelper.deployer, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
 
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const price = await testHelper.engine.contract.getMinaPrice();

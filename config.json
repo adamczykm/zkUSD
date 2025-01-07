@@ -7,8 +7,7 @@
       "keyPath": "keys/lightnet1.json",
       "feepayerKeyPath": "/Users/mack/.cache/zkapp-cli/keys/lightnet1.json",
       "feepayerAlias": "lightnet1",
-      "fee": "0.01",
-      "smartContract": "ZKUSDOrchestrator"
+      "fee": "0.01"
     }
   }
 }

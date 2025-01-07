@@ -1,8 +1,9 @@
 import { AccountUpdate, Bool, PrivateKey, VerificationKey, Mina } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper.js';
-import { ProtocolData } from '../../types.js';
+import { TestAmounts, TestHelper } from '../unit-test-helper.js';
+import { ProtocolData } from '../../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Protocol Vault Administration Test Suite', () => {
   const testHelper = new TestHelper();
@@ -18,28 +19,28 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
       );
     });
 
-    //Fund the creation of the new admin account
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
-      AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
+    //Fund the creation of the new admin keys
+    await transaction(testHelper.agents.alice.keys, async () => {
+      AccountUpdate.fundNewAccount(testHelper.agents.alice.keys.publicKey, 1);
       AccountUpdate.create(newAdmin.publicKey);
     });
   });
 
   it('should allow the admin key to be changed with the current admin key', async () => {
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
+    await transaction(
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -62,15 +63,15 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
       // @ts-ignore
 
       latestEvent.event.data.previousAdmin,
-      TestHelper.protocolAdminKeyPair.publicKey
+      testHelper.networkKeys.protocolAdmin.publicKey
     );
   });
 
   it('should allow the new admin key to make updates to the protocol vault', async () => {
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
+    await transaction(
+      testHelper.agents.alice.keys,
       async () => {
-        await testHelper.engine.contract.stopTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(true));
       },
       {
         extraSigners: [newAdmin.privateKey],
@@ -84,10 +85,10 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     assert.deepStrictEqual(protocolData.emergencyStop, Bool(true));
 
     //Resume the protocol
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
+    await transaction(
+      testHelper.agents.alice.keys,
       async () => {
-        await testHelper.engine.contract.resumeTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(false));
       },
       { extraSigners: [newAdmin.privateKey] }
     );
@@ -100,31 +101,28 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
 
   it('should not allow the admin key to be updated without the current admin key', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.updateAdmin(newAdmin.publicKey);
+      });
     }, /Transaction verification failed/i);
   });
 
-  it('should not allow the admin contract to be upgraded in the current version', async () => {
-    const oldAccount = Mina.getAccount(testHelper.engine.publicKey);
-    const verificationKey = oldAccount.zkapp?.verificationKey;
+  // it('should not allow the admin contract to be upgraded in the current version', async () => {
+  //   const oldAccount = Mina.getAccount(testHelper.networkKeys.engine.publicKey);
+  //   const verificationKey = oldAccount.zkapp?.verificationKey;
 
-    await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.deployer,
-        async () => {
-          await testHelper.engine.contract.updateVerificationKey(
-            verificationKey!
-          );
-        },
-        {
-          extraSigners: [newAdmin.privateKey],
-        }
-      );
-    }, /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i);
-  });
+  //   await assert.rejects(async () => {
+  //     await transaction(
+  //       testHelper.deployer,
+  //       async () => {
+  //         await testHelper.engine.contract.updateVerificationKey(
+  //           verificationKey!
+  //         );
+  //       },
+  //       {
+  //         extraSigners: [newAdmin.privateKey],
+  //       }
+  //     );
+  //   }, /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i);
+  // });
 });

@@ -7,8 +7,11 @@ import {
   UInt32,
   UInt64,
 } from 'o1js';
-import { PriceSubmission, PriceSubmissionPacked } from './types.js';
-import { ZkUsdEngine } from './zkusd-engine.js';
+import {
+  OracleWhitelist,
+  PriceSubmission,
+  PriceSubmissionPacked,
+} from '../types.js';
 
 /**
  * @title   zkUSD Price Tracker contract
@@ -56,7 +59,7 @@ export class ZkUsdPriceTracker extends SmartContract {
     ];
 
     //Create an array to store the valid prices
-    let prices = Array(ZkUsdEngine.MAX_PARTICIPANTS).fill(fallbackPrice);
+    let prices = Array(OracleWhitelist.MAX_PARTICIPANTS).fill(fallbackPrice);
 
     //Unpack the submissions and check if they are from the previous block
     for (let i = 0; i < currentState.length; i++) {

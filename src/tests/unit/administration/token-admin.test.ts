@@ -12,8 +12,8 @@ import {
   State,
   Permissions,
 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper.js';
-import { ProtocolData } from '../../types.js';
+import { TestAmounts, TestHelper } from '../unit-test-helper.js';
+import { ProtocolData } from '../../../types.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 import {
@@ -21,6 +21,7 @@ import {
   FungibleTokenAdminDeployProps,
   FungibleTokenContract,
 } from '@minatokens/token';
+import { transaction } from '../../../utils/transaction.js';
 
 export class NewFungibleTokenAdmin
   extends SmartContract
@@ -97,24 +98,24 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
       );
     });
     //Alice mints 5 zkUSD
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_5_ZKUSD
       );
     });
 
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
-        AccountUpdate.fundNewAccount(testHelper.deployer, 1);
+        AccountUpdate.fundNewAccount(testHelper.deployer.publicKey, 1);
         await adminContract.deploy({
           adminPublicKey: newAdmin.publicKey,
         });
@@ -127,20 +128,20 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
 
   it('should not be able to change the admin without the admin signature', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.deployer, async () => {
+      await transaction(testHelper.deployer, async () => {
         await testHelper.token.contract.setAdmin(newAdminContract.publicKey);
       });
     }, /Transaction verification failed/i);
   });
 
   it('should be able to change the admin with the admin signature', async () => {
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.token.contract.setAdmin(newAdminContract.publicKey);
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -150,34 +151,31 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
 
   it('should no longer be able to mint from the engine contract', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.mintZkUsd(
-            testHelper.agents.alice.vault!.publicKey,
-            TestAmounts.DEBT_5_ZKUSD
-          );
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.mintZkUsd(
+          testHelper.agents.alice.vault!.publicKey,
+          TestAmounts.DEBT_5_ZKUSD
+        );
+      });
     }, /Account_app_state_precondition_unsatisfied/);
   });
 
   it('should be able to mint from the token contract', async () => {
     const FungibleToken = FungibleTokenContract(NewFungibleTokenAdmin);
     testHelper.token.contract = new FungibleToken(
-      TestHelper.tokenKeyPair.publicKey
+      testHelper.networkKeys.token.publicKey
     );
 
     const aliceBalance = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.alice.account
+      testHelper.agents.alice.keys.publicKey
     );
 
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
+    await transaction(
+      testHelper.agents.alice.keys,
       async () => {
-        AccountUpdate.fundNewAccount(testHelper.agents.alice.account, 1);
+        AccountUpdate.fundNewAccount(testHelper.agents.alice.keys.publicKey, 1);
         await testHelper.token.contract.mint(
-          testHelper.agents.alice.account,
+          testHelper.agents.alice.keys.publicKey,
           TestAmounts.DEBT_5_ZKUSD
         );
       },

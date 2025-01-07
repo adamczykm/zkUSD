@@ -7,10 +7,11 @@ import {
   TokenId,
   UInt64,
 } from 'o1js';
-import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Deployment Test Suite', () => {
   const testHelper = new TestHelper();
@@ -24,7 +25,7 @@ describe('zkUSD Deployment Test Suite', () => {
   it('should create vaults', async () => {
     await testHelper.createVaults(['alice']);
 
-    const aliceVault = testHelper.Local.getAccount(
+    const aliceVault = testHelper.chain.local?.getAccount(
       testHelper.agents.alice.vault?.publicKey!,
       testHelper.engine.contract.deriveTokenId()
     );
@@ -46,8 +47,8 @@ describe('zkUSD Deployment Test Suite', () => {
 
   it('should fail to deploy the same vault twice', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
+      await transaction(
+        testHelper.agents.alice.keys,
         async () => {
           await testHelper.engine.contract.createVault(
             testHelper.agents.alice.vault!.publicKey
@@ -78,26 +79,26 @@ describe('zkUSD Deployment Test Suite', () => {
 
     assert.strictEqual(
       owner?.toBase58(),
-      testHelper.agents.alice.account.toBase58()
+      testHelper.agents.alice.keys.publicKey.toBase58()
     );
   });
 
   it('should create multiple vaults', async () => {
     await testHelper.createVaults(['bob', 'charlie', 'david', 'eve']);
 
-    const bobVault = testHelper.Local.getAccount(
+    const bobVault = testHelper.chain.local?.getAccount(
       testHelper.agents.bob.vault?.publicKey!,
       testHelper.engine.contract.deriveTokenId()
     );
-    const charlieVault = testHelper.Local.getAccount(
+    const charlieVault = testHelper.chain.local?.getAccount(
       testHelper.agents.charlie.vault?.publicKey!,
       testHelper.engine.contract.deriveTokenId()
     );
-    const davidVault = testHelper.Local.getAccount(
+    const davidVault = testHelper.chain.local?.getAccount(
       testHelper.agents.david.vault?.publicKey!,
       testHelper.engine.contract.deriveTokenId()
     );
-    const eveVault = testHelper.Local.getAccount(
+    const eveVault = testHelper.chain.local?.getAccount(
       testHelper.agents.eve.vault?.publicKey!,
       testHelper.engine.contract.deriveTokenId()
     );

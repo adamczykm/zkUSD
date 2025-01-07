@@ -7,21 +7,22 @@ import {
   UInt32,
   UInt64,
 } from 'o1js';
-import { TestAmounts, TestHelper } from '../test-helper.js';
+import { TestAmounts, TestHelper } from '../unit-test-helper.js';
 import {
   OracleWhitelist,
   PriceSubmission,
   PriceSubmissionPacked,
   ProtocolData,
-} from '../../types.js';
-import { ZkUsdEngine, ZkUsdEngineErrors } from '../../zkusd-engine.js';
+} from '../../../types.js';
+import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
 import { describe, it, before, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import {
   ZkUsdMasterOracle,
   ZkUsdMasterOracleErrors,
-} from '../../zkusd-master-oracle.js';
-import { ZkUsdPriceTracker } from '../../zkusd-price-tracker.js';
+} from '../../../contracts/zkusd-master-oracle.js';
+import { ZkUsdPriceTracker } from '../../../contracts/zkusd-price-tracker.js';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   const testHelper = new TestHelper();
@@ -38,14 +39,15 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   const getWriteTrackerAddress = () => {
-    const isEven = testHelper.Local.getNetworkState()
+    const isEven = testHelper.chain.local
+      ?.getNetworkState()
       .blockchainLength.mod(2)
       .equals(UInt32.from(0))
       .toBoolean();
 
     return isEven
-      ? ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
-      : ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS;
+      ? testHelper.networkKeys.evenOraclePriceTracker.publicKey
+      : testHelper.networkKeys.oddOraclePriceTracker.publicKey;
   };
 
   beforeEach(async () => {
@@ -56,20 +58,20 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     };
     testHelper.whitelistedOracles = new Map(whitelistedOracles);
 
-    await testHelper.transaction(
-      testHelper.agents.alice.account,
+    await transaction(
+      testHelper.agents.alice.keys,
       async () => {
         await testHelper.engine.contract.updateOracleWhitelist(
           testHelper.whitelist
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
     //settle any outstanding actions
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.settlePriceUpdate();
     });
   });
@@ -78,7 +80,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_48_CENT,
         testHelper.whitelist
@@ -99,12 +101,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should submit the price to the even price tracker on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_52_CENT,
         testHelper.whitelist
@@ -115,7 +117,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     assert.deepStrictEqual(
       trackerAddress,
-      ZkUsdEngine.EVEN_ORACLE_PRICE_TRACKER_ADDRESS
+      testHelper.networkKeys.evenOraclePriceTracker.publicKey
     );
 
     const tracker = new ZkUsdPriceTracker(
@@ -130,12 +132,12 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should submit the price to the odd price tracker on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1001));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1001));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_49_CENT,
         testHelper.whitelist
@@ -146,7 +148,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     assert.deepStrictEqual(
       trackerAddress,
-      ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS
+      testHelper.networkKeys.oddOraclePriceTracker.publicKey
     );
 
     const tracker = new ZkUsdPriceTracker(
@@ -164,7 +166,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_25_CENT,
         testHelper.whitelist
@@ -194,32 +196,26 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
   it('should not allow a non-whitelisted address to submit a price', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            testHelper.whitelist
-          );
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          testHelper.whitelist
+        );
+      });
     }, new RegExp(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED));
   });
 
   it('should not allow a different version of the whitelist', async () => {
     const fakeWhitelist = testHelper.whitelist;
-    fakeWhitelist.addresses[0] = testHelper.agents.alice.account;
+    fakeWhitelist.addresses[0] = testHelper.agents.alice.keys.publicKey;
 
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.submitPrice(
-            TestAmounts.PRICE_25_CENT,
-            fakeWhitelist
-          );
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.submitPrice(
+          TestAmounts.PRICE_25_CENT,
+          fakeWhitelist
+        );
+      });
     }, new RegExp(ZkUsdEngineErrors.INVALID_WHITELIST));
   });
 
@@ -228,7 +224,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.ZERO,
           testHelper.whitelist
@@ -242,7 +238,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleNames = Array.from(whitelistedOracles.keys());
 
     for (const oracleName of oracleNames) {
-      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.PRICE_25_CENT,
           testHelper.whitelist
@@ -316,19 +312,20 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the odd price tracker on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1001));
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1001));
 
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_2_USD,
         testHelper.whitelist
       );
     });
 
-    const trackerAddress = ZkUsdEngine.ODD_ORACLE_PRICE_TRACKER_ADDRESS;
+    const trackerAddress =
+      testHelper.networkKeys.oddOraclePriceTracker.publicKey;
 
     const tracker = new ZkUsdPriceTracker(
       trackerAddress,
@@ -342,7 +339,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should allow the fallback price to be updated with the admin key', async () => {
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -350,13 +347,13 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
     //move block forward
-    testHelper.Local.setBlockchainLength(
-      testHelper.Local.getNetworkState().blockchainLength.add(1)
+    testHelper.chain.local?.setBlockchainLength(
+      testHelper.chain.local?.getNetworkState().blockchainLength.add(1)
     );
 
     const fallbackPrice =
@@ -369,7 +366,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should emit the fallback price update event', async () => {
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -377,7 +374,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -393,8 +390,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the even fallback price if we are on an odd block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(1));
-    await testHelper.transaction(
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(1));
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -402,7 +399,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -416,8 +413,8 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   });
 
   it('should update the odd fallback price if we are on an even block', async () => {
-    testHelper.Local.setBlockchainLength(UInt32.from(2));
-    await testHelper.transaction(
+    testHelper.chain.local?.setBlockchainLength(UInt32.from(2));
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateFallbackPrice(
@@ -425,7 +422,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -440,7 +437,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
   it('should not allow the fallback price to be updated without the admin key', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.deployer, async () => {
+      await transaction(testHelper.deployer, async () => {
         await testHelper.engine.contract.updateFallbackPrice(
           TestAmounts.PRICE_2_USD
         );
@@ -450,7 +447,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
   it('should not allow the fallback price to be updated to 0', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
+      await transaction(
         testHelper.deployer,
         async () => {
           await testHelper.engine.contract.updateFallbackPrice(
@@ -458,7 +455,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
           );
         },
         {
-          extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+          extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
         }
       );
     }, new RegExp(ZkUsdMasterOracleErrors.AMOUNT_ZERO));
@@ -472,7 +469,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
 
     //get the current balance of the price feed oracle
     const minaBalanceOfEngineBefore = Mina.getBalance(
-      testHelper.engine.publicKey
+      testHelper.networkKeys.engine.publicKey
     );
 
     const oracleFundsInEngineBefore =
@@ -486,7 +483,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleBalanceBefore = Mina.getBalance(oracle.publicKey);
 
     // Submit price from oracle
-    await testHelper.transaction(oracle, async () => {
+    await transaction(oracle, async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_25_CENT,
         testHelper.whitelist
@@ -497,7 +494,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const oracleBalanceAfter = Mina.getBalance(oracle.publicKey);
 
     const priceFeedOracleBalanceAfter = Mina.getBalance(
-      testHelper.engine.publicKey
+      testHelper.networkKeys.engine.publicKey
     );
 
     const oracleFundsInEngineAfter =
@@ -533,7 +530,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       await testHelper.engine.contract.getAvailableOracleFunds();
 
     //set the fee to the balance of the oracle to drain the funds
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateOracleFee(
@@ -541,7 +538,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
@@ -549,7 +546,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     const whitelistedOracles = testHelper.whitelistedOracles;
     const oracleName = Array.from(whitelistedOracles.keys())[0];
 
-    await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+    await transaction(testHelper.oracles[oracleName], async () => {
       await testHelper.engine.contract.submitPrice(
         TestAmounts.PRICE_25_CENT,
         testHelper.whitelist
@@ -564,7 +561,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
       UInt64.zero.toString()
     );
 
-    await testHelper.transaction(
+    await transaction(
       testHelper.deployer,
       async () => {
         await testHelper.engine.contract.updateOracleFee(
@@ -572,13 +569,13 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
         );
       },
       {
-        extraSigners: [TestHelper.protocolAdminKeyPair.privateKey],
+        extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
       }
     );
 
     //Submit a new price - this should fail
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.oracles[oracleName], async () => {
+      await transaction(testHelper.oracles[oracleName], async () => {
         await testHelper.engine.contract.submitPrice(
           TestAmounts.PRICE_50_CENT,
           testHelper.whitelist
@@ -595,7 +592,7 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
     );
 
     await assert.rejects(async () => {
-      await testHelper.transaction(testHelper.deployer, async () => {
+      await transaction(testHelper.deployer, async () => {
         const accountUpdate = AccountUpdate.create(
           trackerAddress,
           testHelper.engine.contract.deriveTokenId()

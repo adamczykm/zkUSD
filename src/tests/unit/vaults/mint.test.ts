@@ -1,9 +1,13 @@
-import { TestHelper, TestAmounts } from '../test-helper.js';
+import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { AccountUpdate, Mina, PrivateKey, PublicKey, UInt64 } from 'o1js';
-import { ZkUsdVault, ZkUsdVaultErrors } from '../../zkusd-vault.js';
-import { ZkUsdEngineErrors } from '../../zkusd-engine.js';
+import {
+  ZkUsdVault,
+  ZkUsdVaultErrors,
+} from '../../../contracts/zkusd-vault.js';
+import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
+import { transaction } from '../../../utils/transaction.js';
 
 describe('zkUSD Vault Mint Test Suite', () => {
   const testHelper = new TestHelper();
@@ -17,7 +21,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.depositCollateral(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.COLLATERAL_100_MINA
@@ -26,7 +30,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
   });
 
   it('should allow alice to mint zkUSD', async () => {
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_5_ZKUSD
@@ -34,7 +38,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
     });
 
     const aliceBalance = await testHelper.token.contract.getBalanceOf(
-      testHelper.agents.alice.account
+      testHelper.agents.alice.keys.publicKey
     );
 
     const debtAmount =
@@ -77,15 +81,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     // Perform multiple small mints
     for (let i = 0; i < 3; i++) {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.mintZkUsd(
-            testHelper.agents.alice.vault!.publicKey,
-            TestAmounts.DEBT_1_ZKUSD
-          );
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.mintZkUsd(
+          testHelper.agents.alice.vault!.publicKey,
+          TestAmounts.DEBT_1_ZKUSD
+        );
+      });
     }
 
     const finalDebt =
@@ -99,15 +100,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
   it('should fail if mint amount is zero', async () => {
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.ZERO
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.ZERO
+          );
+        });
       },
       {
         message: ZkUsdVaultErrors.AMOUNT_ZERO,
@@ -117,30 +115,24 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
   it('should fail if mint amount is negative', async () => {
     await assert.rejects(async () => {
-      await testHelper.transaction(
-        testHelper.agents.alice.account,
-        async () => {
-          await testHelper.engine.contract.mintZkUsd(
-            testHelper.agents.alice.vault!.publicKey,
-            UInt64.from(-1)
-          );
-        }
-      );
+      await transaction(testHelper.agents.alice.keys, async () => {
+        await testHelper.engine.contract.mintZkUsd(
+          testHelper.agents.alice.vault!.publicKey,
+          UInt64.from(-1)
+        );
+      });
     });
   });
 
   it('should fail if the minter is not the owner of the vault', async () => {
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.bob.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.DEBT_5_ZKUSD
-            );
-          }
-        );
+        await transaction(testHelper.agents.bob.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, /Field.assertEquals()/i);
@@ -154,15 +146,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              LARGE_ZKUSD_AMOUNT
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            LARGE_ZKUSD_AMOUNT
+          );
+        });
       },
       {
         message: ZkUsdVaultErrors.HEALTH_FACTOR_TOO_LOW,
@@ -187,15 +176,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
       // Only mint if health factor would remain above minimum
       if (healthFactor!.greaterThanOrEqual(ZkUsdVault.MIN_HEALTH_FACTOR)) {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.DEBT_1_ZKUSD
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_1_ZKUSD
+          );
+        });
         currentDebt = currentDebt?.add(TestAmounts.DEBT_1_ZKUSD);
       }
     }
@@ -218,15 +204,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
   it('should not allow minting from calling the token contract directly', async () => {
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.token.contract.mint(
-              testHelper.agents.alice.account,
-              TestAmounts.DEBT_5_ZKUSD
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.token.contract.mint(
+            testHelper.agents.alice.keys.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        });
       },
       (err: any) => {
         assert.match(
@@ -243,15 +226,12 @@ describe('zkUSD Vault Mint Test Suite', () => {
 
     await assert.rejects(
       async () => {
-        await testHelper.transaction(
-          testHelper.agents.alice.account,
-          async () => {
-            await testHelper.engine.contract.mintZkUsd(
-              testHelper.agents.alice.vault!.publicKey,
-              TestAmounts.DEBT_5_ZKUSD
-            );
-          }
-        );
+        await transaction(testHelper.agents.alice.keys, async () => {
+          await testHelper.engine.contract.mintZkUsd(
+            testHelper.agents.alice.vault!.publicKey,
+            TestAmounts.DEBT_5_ZKUSD
+          );
+        });
       },
       (err: any) => {
         assert.match(err.message, new RegExp(ZkUsdEngineErrors.EMERGENCY_HALT));
@@ -263,7 +243,7 @@ describe('zkUSD Vault Mint Test Suite', () => {
   it('Should allow minting if the price feed is resumed', async () => {
     await testHelper.resumeTheProtocol();
 
-    await testHelper.transaction(testHelper.agents.alice.account, async () => {
+    await transaction(testHelper.agents.alice.keys, async () => {
       await testHelper.engine.contract.mintZkUsd(
         testHelper.agents.alice.vault!.publicKey,
         TestAmounts.DEBT_5_ZKUSD
