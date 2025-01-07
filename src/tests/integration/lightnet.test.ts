@@ -6,7 +6,6 @@ import { describe, it, before } from 'node:test';
 
 before(async () => {
   const chain = await initBlockchain('lightnet');
-  console.log(chain);
   const deployedContracts = await deploy(chain, chain.keys[0]);
 });
 

@@ -33,6 +33,8 @@ export async function deploy(
 ): Promise<DeployedContracts> {
   console.log('Deploying contracts on ', currentNetwork.network.chainId);
 
+  const fee = currentNetwork.network.chainId !== 'local' ? 1e8 : 0;
+
   const networkKeys = getNetworkKeys(currentNetwork.network.chainId);
 
   const ZkUsdEngine = ZkUsdEngineContract(
@@ -64,7 +66,7 @@ export async function deploy(
   const vaultVerificationKeyHash = vaultVerification.verificationKey.hash;
 
   await ZkUsdMasterOracle.compile();
-  console.log(ZkUsdMasterOracle);
+
   await ZkUsdPriceTracker.compile();
 
   if (
@@ -72,15 +74,20 @@ export async function deploy(
     currentNetwork.network.chainId !== 'local'
   ) {
     console.log('Compiling Engine and Token contracts');
-    console.log(ZkUsdEngine);
     await ZkUsdEngine.compile();
     await FungibleToken.compile();
   }
 
   //Check whether we have the protocol admin account created
 
+  console.log('Creating Protocol Admin account');
+
   try {
-    Mina.getAccount(networkKeys.protocolAdmin.publicKey);
+    const adminAccount = (
+      await fetchAccount({ publicKey: networkKeys.protocolAdmin.publicKey })
+    ).account;
+    if (!adminAccount) throw new Error('Protocol Admin account not found');
+    console.log('Protocol Admin account already created');
   } catch {
     await transaction(
       deployer,
@@ -90,6 +97,7 @@ export async function deploy(
       },
       {
         extraSigners: [networkKeys.protocolAdmin.privateKey],
+        fee,
       }
     );
   }
@@ -103,52 +111,73 @@ export async function deploy(
     vaultVerificationKeyHash: vaultVerificationKeyHash!,
   };
 
-  await transaction(
-    deployer,
-    async () => {
-      AccountUpdate.fundNewAccount(deployer.publicKey, 3);
-      await token.contract.deploy({
-        symbol: 'zkUSD',
-        src: 'TBD',
-      });
-      await token.contract.initialize(
-        networkKeys.engine.publicKey,
-        UInt8.from(9),
-        Bool(false)
-      );
-      await engine.contract.deploy(engineDeployProps);
-    },
-    {
-      extraSigners: [
-        networkKeys.token.privateKey,
-        networkKeys.engine.privateKey,
-        networkKeys.protocolAdmin.privateKey,
-        networkKeys.evenOraclePriceTracker.privateKey,
-      ],
-    }
-  );
+  console.log('Deploying Token contract');
+
+  try {
+    const tokenAccount = (
+      await fetchAccount({ publicKey: networkKeys.token.publicKey })
+    ).account;
+    if (!tokenAccount) throw new Error('Token contract not found');
+    console.log('Token contract already deployed');
+  } catch {
+    await transaction(
+      deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(deployer.publicKey, 3);
+        await token.contract.deploy({
+          symbol: 'zkUSD',
+          src: 'TBD',
+        });
+        await token.contract.initialize(
+          networkKeys.engine.publicKey,
+          UInt8.from(9),
+          Bool(false)
+        );
+        await engine.contract.deploy(engineDeployProps);
+      },
+      {
+        extraSigners: [
+          networkKeys.token.privateKey,
+          networkKeys.engine.privateKey,
+          networkKeys.protocolAdmin.privateKey,
+          networkKeys.evenOraclePriceTracker.privateKey,
+        ],
+        fee,
+      }
+    );
+  }
 
   if (currentNetwork.local) {
     currentNetwork.local.setBlockchainLength(UInt32.from(1000));
   }
 
-  await transaction(
-    deployer,
-    async () => {
-      AccountUpdate.fundNewAccount(deployer.publicKey, 4);
-      await engine.contract.initialize();
-    },
-    {
-      printTx: true,
-      extraSigners: [
-        networkKeys.protocolAdmin.privateKey,
-        networkKeys.engine.privateKey,
-        networkKeys.masterOracle.privateKey,
-        networkKeys.evenOraclePriceTracker.privateKey,
-        networkKeys.oddOraclePriceTracker.privateKey,
-      ],
-    }
-  );
+  console.log('Initializing Engine contract');
+
+  try {
+    const engineAccount = (
+      await fetchAccount({ publicKey: networkKeys.engine.publicKey })
+    ).account;
+    if (!engineAccount) throw new Error('Engine contract not found');
+    console.log('Engine contract already deployed');
+  } catch {
+    await transaction(
+      deployer,
+      async () => {
+        AccountUpdate.fundNewAccount(deployer.publicKey, 4);
+        await engine.contract.initialize();
+      },
+      {
+        extraSigners: [
+          networkKeys.protocolAdmin.privateKey,
+          networkKeys.engine.privateKey,
+          networkKeys.masterOracle.privateKey,
+          networkKeys.evenOraclePriceTracker.privateKey,
+          networkKeys.oddOraclePriceTracker.privateKey,
+        ],
+        fee,
+      }
+    );
+  }
 
   return {
     token,

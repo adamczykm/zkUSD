@@ -29,7 +29,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     await transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.engine.contract.stopTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(true));
       },
       {
         extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
@@ -52,7 +52,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     await transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.engine.contract.stopTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(true));
       },
       {
         extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
@@ -62,7 +62,12 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    assert.strictEqual(latestEvent.type, 'EmergencyStop');
+    assert.strictEqual(latestEvent.type, 'EmergencyStopToggled');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.emergencyStop,
+      Bool(true)
+    );
 
     await testHelper.resumeTheProtocol();
   });
@@ -70,7 +75,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
   it('should not allow the protocol to be stopped without the admin key', async () => {
     await assert.rejects(async () => {
       await transaction(testHelper.agents.alice.keys, async () => {
-        await testHelper.engine.contract.stopTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(true));
       });
     }, /Transaction verification failed/i);
   });
@@ -81,7 +86,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     await transaction(
       testHelper.deployer,
       async () => {
-        await testHelper.engine.contract.resumeTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(false));
       },
       {
         extraSigners: [testHelper.networkKeys.protocolAdmin.privateKey],
@@ -100,7 +105,12 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
     const contractEvents = await testHelper.engine.contract.fetchEvents();
     const latestEvent = contractEvents[0];
 
-    assert.strictEqual(latestEvent.type, 'EmergencyResume');
+    assert.strictEqual(latestEvent.type, 'EmergencyStopToggled');
+    assert.deepStrictEqual(
+      // @ts-ignore
+      latestEvent.event.data.emergencyStop,
+      Bool(false)
+    );
   });
 
   it('should not allow the protocol to be resumed without the admin key', async () => {
@@ -108,7 +118,7 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
 
     await assert.rejects(async () => {
       await transaction(testHelper.agents.alice.keys, async () => {
-        await testHelper.engine.contract.resumeTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(false));
       });
     }, /Transaction verification failed/i);
 

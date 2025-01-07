@@ -38,8 +38,7 @@ import {
   FallbackMinaPriceUpdateEvent,
   OracleFundsDepositedEvent,
   MinaPriceSubmissionEvent,
-  EmergencyStopEvent,
-  EmergencyResumeEvent,
+  EmergencyStopToggledEvent,
   AdminUpdatedEvent,
   VerificationKeyUpdatedEvent,
   OracleWhitelistUpdatedEvent,
@@ -106,8 +105,7 @@ export function ZkUsdEngineContract(
       FallbackMinaPriceUpdate: FallbackMinaPriceUpdateEvent,
       OracleFundsDeposited: OracleFundsDepositedEvent,
       MinaPriceSubmission: MinaPriceSubmissionEvent,
-      EmergencyStop: EmergencyStopEvent,
-      EmergencyResume: EmergencyResumeEvent,
+      EmergencyStopToggled: EmergencyStopToggledEvent,
       AdminUpdated: AdminUpdatedEvent,
       VerificationKeyUpdated: VerificationKeyUpdatedEvent,
       OracleWhitelistUpdated: OracleWhitelistUpdatedEvent,
@@ -232,14 +230,19 @@ export function ZkUsdEngineContract(
         value: priceTrackerVerificationKey,
       };
 
+      const blockchainLength = this.network.blockchainLength.get();
+
+      //As the admin is initializing, we dont need to check the blockchain length
+      this.network.blockchainLength.requireNothing();
+
       const evenPackedPriceSubmission = PriceSubmission.new(
         this.minaPriceEvenBlock.getAndRequireEquals(),
-        UInt32.from(this.network.blockchainLength.getAndRequireEquals())
+        UInt32.from(blockchainLength)
       ).pack();
 
       const oddPackedPriceSubmission = PriceSubmission.new(
         this.minaPriceOddBlock.getAndRequireEquals(),
-        UInt32.from(this.network.blockchainLength.getAndRequireEquals())
+        UInt32.from(blockchainLength)
       ).pack();
 
       for (let i = 0; i < OracleWhitelist.MAX_PARTICIPANTS; i++) {
@@ -262,8 +265,7 @@ export function ZkUsdEngineContract(
      * @notice  Returns the total amount of collateral deposited into the engine
      * @returns The total amount of collateral deposited into the engine
      */
-    @method.returns(UInt64)
-    async getTotalDepositedCollateral(): Promise<UInt64> {
+    public async getTotalDepositedCollateral(): Promise<UInt64> {
       const account = AccountUpdate.create(
         this.address,
         this.deriveTokenId()
@@ -276,8 +278,7 @@ export function ZkUsdEngineContract(
      * @notice  Returns the total amount of funds available to the oracle
      * @returns The total amount of funds available to the oracle
      */
-    @method.returns(UInt64)
-    async getAvailableOracleFunds(): Promise<UInt64> {
+    public async getAvailableOracleFunds(): Promise<UInt64> {
       const account = AccountUpdate.create(
         masterOracleAddress,
         this.deriveTokenId()
@@ -285,6 +286,24 @@ export function ZkUsdEngineContract(
       const balance = account.balance.getAndRequireEquals();
 
       return balance;
+    }
+
+    /**
+     * @notice  Returns the health factor of a vault
+     * @param   vaultAddress The address of the vault
+     * @returns The health factor of the vault
+     */
+    public async getVaultHealthFactor(
+      vaultAddress: PublicKey
+    ): Promise<UInt64> {
+      //Get the vault
+      const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
+
+      //Get the price
+      const minaPrice = await this.getMinaPrice();
+
+      //Return the health factor
+      return vault.getHealthFactor(minaPrice);
     }
 
     /**
@@ -674,25 +693,6 @@ export function ZkUsdEngineContract(
     }
 
     /**
-     * @notice  Returns the health factor of a vault
-     * @param   vaultAddress The address of the vault
-     * @returns The health factor of the vault
-     */
-    @method.returns(UInt64)
-    public async getVaultHealthFactor(
-      vaultAddress: PublicKey
-    ): Promise<UInt64> {
-      //Get the vault
-      const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
-
-      //Get the price
-      const minaPrice = await this.getMinaPrice();
-
-      //Return the health factor
-      return vault.getHealthFactor(minaPrice);
-    }
-
-    /**
      * @notice  Internal helper to validate admin signature
      * @returns The signed account update from the admin
      */
@@ -704,49 +704,34 @@ export function ZkUsdEngineContract(
     }
 
     /**
-     * @notice  Halts all protocol operations in emergency situations
+     * @notice  Toggles the emergency stop state of the protocol
      * @dev     Can only be called by authorized addresses via protocol vault
+     * @param   shouldStop True to stop the protocol, false to resume
      */
-    @method async stopTheProtocol() {
+    @method async toggleEmergencyStop(shouldStop: Bool) {
       const protocolData = ProtocolData.unpack(
         this.protocolDataPacked.getAndRequireEquals()
       );
 
       //Assertions
-      protocolData.emergencyStop.assertFalse(ZkUsdEngineErrors.EMERGENCY_HALT);
+      shouldStop
+        .equals(protocolData.emergencyStop)
+        .assertFalse('Protocol is already in desired state');
 
-      //Do we have the right permissions to stop the protocol?
+      //Do we have the right permissions to toggle the protocol?
       await this.ensureAdminSignature();
 
-      //Stop the protocol
-      protocolData.emergencyStop = Bool(true);
+      //Toggle the protocol state
+      protocolData.emergencyStop = shouldStop;
       this.protocolDataPacked.set(protocolData.pack());
 
-      // Add emergency stop event
-      this.emitEvent('EmergencyStop', new EmergencyStopEvent({}));
-    }
-
-    /**
-     * @notice  Resumes protocol operations after emergency halt
-     * @dev     Can only be called by authorized addresses via protocol vault
-     */
-    @method async resumeTheProtocol() {
-      const protocolData = ProtocolData.unpack(
-        this.protocolDataPacked.getAndRequireEquals()
+      //Emit the Liquidate event
+      this.emitEvent(
+        'EmergencyStopToggled',
+        new EmergencyStopToggledEvent({
+          emergencyStop: shouldStop,
+        })
       );
-
-      //Assertions
-      protocolData.emergencyStop.assertTrue(ZkUsdEngineErrors.EMERGENCY_HALT);
-
-      //Do we have the right permissions to resume the protocol?
-      await this.ensureAdminSignature();
-
-      //Resume the protocol
-      protocolData.emergencyStop = Bool(false);
-      this.protocolDataPacked.set(protocolData.pack());
-
-      // Add emergency resume event
-      this.emitEvent('EmergencyResume', new EmergencyResumeEvent({}));
     }
 
     /**
@@ -792,18 +777,6 @@ export function ZkUsdEngineContract(
         previousFee: previousFee,
         newFee: fee,
       });
-    }
-
-    /**
-     * @notice  Updates the verification key for the protocol vault
-     * @param   vk The new verification key
-     */
-    @method
-    async updateVerificationKey(vk: VerificationKey) {
-      await this.ensureAdminSignature();
-      this.account.verificationKey.set(vk);
-
-      this.emitEvent('VerificationKeyUpdated', {});
     }
 
     /**

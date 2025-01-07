@@ -1,9 +1,6 @@
 import { TestHelper, TestAmounts } from '../unit-test-helper.js';
 import { AccountUpdate, Field, Mina, UInt64 } from 'o1js';
-import {
-  ZkUsdVault,
-  ZkUsdVaultErrors,
-} from '../../../contracts/zkusd-vault.js';
+import { ZkUsdVaultErrors } from '../../../contracts/zkusd-vault.js';
 import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';

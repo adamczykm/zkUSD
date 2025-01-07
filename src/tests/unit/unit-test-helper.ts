@@ -232,7 +232,7 @@ export class TestHelper {
     await transaction(
       this.deployer,
       async () => {
-        await this.engine.contract.stopTheProtocol();
+        await this.engine.contract.toggleEmergencyStop(Bool(true));
       },
       {
         extraSigners: [this.networkKeys.protocolAdmin.privateKey],
@@ -244,7 +244,7 @@ export class TestHelper {
     await transaction(
       this.deployer,
       async () => {
-        await this.engine.contract.resumeTheProtocol();
+        await this.engine.contract.toggleEmergencyStop(Bool(false));
       },
       {
         extraSigners: [this.networkKeys.protocolAdmin.privateKey],

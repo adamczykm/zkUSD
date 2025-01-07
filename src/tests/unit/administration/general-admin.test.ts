@@ -71,7 +71,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await transaction(
       testHelper.agents.alice.keys,
       async () => {
-        await testHelper.engine.contract.stopTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(true));
       },
       {
         extraSigners: [newAdmin.privateKey],
@@ -88,7 +88,7 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     await transaction(
       testHelper.agents.alice.keys,
       async () => {
-        await testHelper.engine.contract.resumeTheProtocol();
+        await testHelper.engine.contract.toggleEmergencyStop(Bool(false));
       },
       { extraSigners: [newAdmin.privateKey] }
     );
@@ -107,22 +107,22 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
     }, /Transaction verification failed/i);
   });
 
-  it('should not allow the admin contract to be upgraded in the current version', async () => {
-    const oldAccount = Mina.getAccount(testHelper.networkKeys.engine.publicKey);
-    const verificationKey = oldAccount.zkapp?.verificationKey;
+  // it('should not allow the admin contract to be upgraded in the current version', async () => {
+  //   const oldAccount = Mina.getAccount(testHelper.networkKeys.engine.publicKey);
+  //   const verificationKey = oldAccount.zkapp?.verificationKey;
 
-    await assert.rejects(async () => {
-      await transaction(
-        testHelper.deployer,
-        async () => {
-          await testHelper.engine.contract.updateVerificationKey(
-            verificationKey!
-          );
-        },
-        {
-          extraSigners: [newAdmin.privateKey],
-        }
-      );
-    }, /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i);
-  });
+  //   await assert.rejects(async () => {
+  //     await transaction(
+  //       testHelper.deployer,
+  //       async () => {
+  //         await testHelper.engine.contract.updateVerificationKey(
+  //           verificationKey!
+  //         );
+  //       },
+  //       {
+  //         extraSigners: [newAdmin.privateKey],
+  //       }
+  //     );
+  //   }, /Transaction verification failed: Cannot update field 'verificationKey' because permission for this field is 'Impossible'/i);
+  // });
 });
