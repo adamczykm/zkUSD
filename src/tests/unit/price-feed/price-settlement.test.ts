@@ -9,9 +9,9 @@ describe('zkUSD Price Feed Oracle Price Settlement Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain();
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
+    await testHelper.createAgents(['alice']);
   });
 
   it('should settle the correct price', async () => {

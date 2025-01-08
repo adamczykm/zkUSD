@@ -141,15 +141,36 @@ export class MinaChainInstance implements MinaApi {
 
   // ----------- Bind all MinaApi methods -----------
   private bindMethods() {
-    const proto = Object.getPrototypeOf(this.instance);
-    for (const methodName of Object.getOwnPropertyNames(proto)) {
-      if (methodName === 'constructor') continue;
-      const descriptor = Object.getOwnPropertyDescriptor(proto, methodName);
-      if (descriptor && typeof descriptor.value === 'function') {
-        (this as any)[methodName] = descriptor.value.bind(this.instance);
+    // Get all property names that exist directly on `this.instance`
+    const propertyNames = Object.getOwnPropertyNames(this.instance);
+
+    for (const name of propertyNames) {
+      // Protect against weird properties like '__proto__'
+      if (name === 'constructor' || name === '__proto__') continue;
+
+      const descriptor = Object.getOwnPropertyDescriptor(this.instance, name);
+      if (!descriptor) continue;
+
+      // 1) If it's a function, bind it to `this.instance`.
+      if (typeof descriptor.value === 'function') {
+        (this as any)[name] = descriptor.value.bind(this.instance);
+      }
+      // 2) If it's an accessor (getter/setter), re-define it on `this`.
+      else if (descriptor.get || descriptor.set) {
+        Object.defineProperty(this, name, {
+          get: descriptor.get?.bind(this.instance),
+          set: descriptor.set?.bind(this.instance),
+          enumerable: descriptor.enumerable ?? true,
+          configurable: descriptor.configurable ?? true,
+        });
+      }
+      // 3) Otherwise, it’s a normal value property—copy it over.
+      else {
+        (this as any)[name] = descriptor.value;
       }
     }
   }
+
 }
 
 // Export a singleton you can import anywhere

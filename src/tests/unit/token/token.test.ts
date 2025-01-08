@@ -15,9 +15,9 @@ describe('zkUSD Token Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain()
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice', 'bob']);
+    await testHelper.createAgents(['alice', 'bob']);
     await testHelper.createVaults(['alice', 'bob']);
 
     // First deposit collateral to allow minting

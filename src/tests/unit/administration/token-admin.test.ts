@@ -89,10 +89,10 @@ describe('zkUSD Protocol Vault Token Administration Test Suite', () => {
   const adminContract = new NewFungibleTokenAdmin(newAdminContract.publicKey);
 
   before(async () => {
-    await testHelper.initLocalChain()
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
 
-    testHelper.createAgents(['alice']);
+    await testHelper.createAgents(['alice']);
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina

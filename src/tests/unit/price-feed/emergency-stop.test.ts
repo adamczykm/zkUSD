@@ -1,5 +1,5 @@
 import { AccountUpdate, Bool } from 'o1js';
-import { TestAmounts, TestHelper } from '../../test-helper'
+import { TestAmounts, TestHelper } from '../../test-helper.js'
 import { ProtocolData } from '../../../types.js';
 import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
 import { describe, it, before } from 'node:test';
@@ -10,9 +10,9 @@ describe('zkUSD Price Feed Emergency Stop Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain()
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
+    await testHelper.createAgents(['alice']);
 
     await testHelper.createVaults(['alice']);
 

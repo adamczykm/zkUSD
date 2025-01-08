@@ -69,10 +69,12 @@ export async function deploy(
   await ZkUsdPriceTracker.compile();
 
   if (currentNetwork.proofsEnabled) {
-    console.log('Compiling Engine and Token contracts');
+    console.log('Compiling Engine contract');
     await ZkUsdEngine.compile();
+    console.log('Compiling Token contract');
     await FungibleToken.compile();
   }
+
 
   //Check whether we have the protocol admin account created
 
@@ -107,7 +109,7 @@ export async function deploy(
     vaultVerificationKeyHash: vaultVerificationKeyHash!,
   };
 
-  console.log('Deploying Token contract');
+  console.log('Checking Token contract');
 
   try {
     const tokenAccount = (
@@ -116,6 +118,7 @@ export async function deploy(
     if (!tokenAccount) throw new Error('Token contract not found');
     console.log('Token contract already deployed');
   } catch {
+    console.log('Not found - deploying Token contract');
     await transaction(
       deployer,
       async () => {
@@ -143,9 +146,7 @@ export async function deploy(
     );
   }
 
-  if (currentNetwork.local) {
-    currentNetwork.local.setBlockchainLength(UInt32.from(1000));
-  }
+  currentNetwork.local?.setBlockchainLength(UInt32.from(1000));
 
   console.log('Initializing Engine contract');
 

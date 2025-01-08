@@ -9,9 +9,9 @@ describe('zkUSD Protocol Oracle Fee Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain()
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
+    await testHelper.createAgents(['alice']);
   });
 
   it('should allow the fee to be changed with the admin key', async () => {

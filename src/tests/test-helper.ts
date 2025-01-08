@@ -1,13 +1,13 @@
 import { AccountUpdate, Bool, Field, PrivateKey, PublicKey, UInt64 } from "o1js";
-import { ZkUsdVault } from "../contracts/zkusd-vault";
-import { ContractInstance, KeyPair, OracleWhitelist } from "../types";
+import { ZkUsdVault } from "../contracts/zkusd-vault.js";
+import { ZkUsdEngineContract } from "../contracts/zkusd-engine.js";
+import { ZkUsdMasterOracle } from "../contracts/zkusd-master-oracle.js";
+import { ContractInstance, KeyPair, OracleWhitelist } from "../types.js";
 import { FungibleTokenContract } from "@minatokens/token";
-import { ZkUsdEngineContract } from "../contracts/zkusd-engine";
-import { ZkUsdMasterOracle } from "../contracts/zkusd-master-oracle";
-import { MinaChain} from "../mina";
-import { NetworkKeyPairs } from "../config/keys";
-import { transaction } from "../utils/transaction";
-import { deploy } from "../deploy";
+import { MinaChain} from "../mina.js";
+import { NetworkKeyPairs, getNetworkKeys } from "../config/keys.js";
+import { transaction } from "../utils/transaction.js";
+import { deploy } from "../deploy.js";
 
 export class TestAmounts {
   //ZERO
@@ -58,7 +58,6 @@ interface Agent {
 }
 
 export class TestHelper {
-  networkKeys: NetworkKeyPairs;
   chain = MinaChain;
 
   deployer: KeyPair;
@@ -70,8 +69,17 @@ export class TestHelper {
   masterOracle: ContractInstance<ZkUsdMasterOracle>;
 
   vaultVerificationKeyHash?: Field;
-  whitelist: OracleWhitelist;
+  whitelist: OracleWhitelist = new OracleWhitelist({
+    addresses: Array(OracleWhitelist.MAX_PARTICIPANTS).fill(
+      PublicKey.empty()
+    ),
+  });
+
   whitelistedOracles: Map<string, number> = new Map();
+
+  get networkKeys(): NetworkKeyPairs {
+    return getNetworkKeys(this.chain.network().chainId);
+  }
 
   createVaultKeyPair(): { publicKey: PublicKey; privateKey: PrivateKey } {
     return PrivateKey.randomKeypair();
@@ -79,11 +87,14 @@ export class TestHelper {
 
   async initLocalChain(opts?: { proofsEnabled?: boolean | undefined; enforceTransactionLimits?: boolean | undefined; }) {
     await this.chain.initLocal(opts);
+    this.deployer = await this.chain.newAccount();
   }
 
   async initLightnetChain() {
     await this.chain.initLightnet();
+    this.deployer = await this.chain.newAccount();
   }
+
 
   async deployTokenContracts() {
     const deployedContracts = await deploy(this.chain, this.deployer);

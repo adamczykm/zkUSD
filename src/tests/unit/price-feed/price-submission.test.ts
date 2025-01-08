@@ -5,7 +5,7 @@ import {
   UInt32,
   UInt64,
 } from 'o1js';
-import { TestAmounts, TestHelper } from '../../test-helper';
+import { TestAmounts, TestHelper } from '../../test-helper.js';
 import {
   OracleWhitelist,
   PriceSubmission,
@@ -28,11 +28,11 @@ describe('zkUSD Price Feed Oracle Submission Test Suite', () => {
   let whitelistedOracles: Map<string, number>;
 
   before(async () => {
-    await testHelper.initLocalChain();
+    await testHelper.initLocalChain({proofsEnabled: false});
     await testHelper.deployTokenContracts();
     whitelist = testHelper.whitelist;
     whitelistedOracles = testHelper.whitelistedOracles;
-    testHelper.createAgents(['alice']);
+    await testHelper.createAgents(['alice']);
   });
 
   const getWriteTrackerAddress = () => {

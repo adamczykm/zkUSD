@@ -8,7 +8,7 @@ import {
   UInt64,
 } from 'o1js';
 import { ZkUsdEngineErrors } from '../../../contracts/zkusd-engine.js';
-import { TestHelper, TestAmounts } from '../../test-helper';
+import { TestHelper, TestAmounts } from '../../test-helper.js';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 import { transaction } from '../../../utils/transaction.js';
@@ -17,9 +17,9 @@ describe('zkUSD Deployment Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain();
+    await testHelper.initLocalChain({proofsEnabled: false});
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice', 'bob', 'charlie', 'david', 'eve']);
+    await testHelper.createAgents(['alice', 'bob', 'charlie', 'david', 'eve']);
   });
 
   it('should create vaults', async () => {

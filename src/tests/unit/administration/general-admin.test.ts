@@ -11,10 +11,9 @@ describe('zkUSD Protocol Vault Administration Test Suite', () => {
   const newAdmin = PrivateKey.randomKeypair();
 
   before(async () => {
-    await testHelper.initLocalChain()
+    await testHelper.initLocalChain({proofsEnabled: false})
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice']);
-
+    await testHelper.createAgents(['alice']);
     await testHelper.createVaults(['alice']);
 
     //Alice deposits 100 Mina

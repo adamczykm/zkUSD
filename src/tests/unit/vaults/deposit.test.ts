@@ -1,4 +1,4 @@
-import { TestHelper, TestAmounts } from '../../test-helper';
+import { TestHelper, TestAmounts } from '../../test-helper.js';
 import { Mina, UInt64 } from 'o1js';
 import { ZkUsdVaultErrors } from '../../../contracts/zkusd-vault.js';
 import { describe, it, before } from 'node:test';
@@ -9,9 +9,9 @@ describe('zkUSD Vault Deposit Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initLocalChain();
+    await testHelper.initLocalChain({proofsEnabled: false});
     await testHelper.deployTokenContracts();
-    testHelper.createAgents(['alice', 'bob']);
+    await testHelper.createAgents(['alice', 'bob']);
 
     //deploy alice's vault
     await testHelper.createVaults(['alice']);
