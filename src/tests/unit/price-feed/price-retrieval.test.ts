@@ -1,5 +1,5 @@
 import { UInt32 } from 'o1js';
-import { TestAmounts, TestHelper } from '../unit-test-helper.js';
+import { TestAmounts, TestHelper } from '../../test-helper';
 import { describe, it, before } from 'node:test';
 import assert from 'node:assert';
 
@@ -7,7 +7,7 @@ describe('zkUSD Price Feed Oracle Price Retrieval Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initChain();
+    await testHelper.initLocalChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice']);
   });

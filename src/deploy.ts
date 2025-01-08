@@ -1,4 +1,4 @@
-import { MinaNetworkInstance, initBlockchain } from './mina.js';
+import { MinaChainInstance  } from './mina.js';
 import { ZkUsdMasterOracle } from './contracts/zkusd-master-oracle.js';
 import { ZkUsdPriceTracker } from './contracts/zkusd-price-tracker.js';
 import {
@@ -12,13 +12,11 @@ import {
   AccountUpdate,
   Bool,
   fetchAccount,
-  Mina,
-  PrivateKey,
   UInt32,
   UInt64,
   UInt8,
 } from 'o1js';
-import { ContractInstance, KeyPair, OracleWhitelist } from './types.js';
+import { ContractInstance, KeyPair } from './types.js';
 import { transaction } from './utils/transaction.js';
 
 interface DeployedContracts {
@@ -28,14 +26,15 @@ interface DeployedContracts {
 }
 
 export async function deploy(
-  currentNetwork: MinaNetworkInstance,
+  currentNetwork: MinaChainInstance,
   deployer: KeyPair
 ): Promise<DeployedContracts> {
-  console.log('Deploying contracts on ', currentNetwork.network.chainId);
+  const chainId = currentNetwork.network().chainId;
+  console.log('Deploying contracts on ', chainId);
 
-  const fee = currentNetwork.network.chainId !== 'local' ? 1e8 : 0;
+  const fee = chainId !== 'local' ? 1e8 : 0;
 
-  const networkKeys = getNetworkKeys(currentNetwork.network.chainId);
+  const networkKeys = getNetworkKeys(chainId);
 
   const ZkUsdEngine = ZkUsdEngineContract(
     networkKeys.token.publicKey,
@@ -69,10 +68,7 @@ export async function deploy(
 
   await ZkUsdPriceTracker.compile();
 
-  if (
-    currentNetwork.local?.proofsEnabled ||
-    currentNetwork.network.chainId !== 'local'
-  ) {
+  if (currentNetwork.proofsEnabled) {
     console.log('Compiling Engine and Token contracts');
     await ZkUsdEngine.compile();
     await FungibleToken.compile();

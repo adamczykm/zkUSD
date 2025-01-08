@@ -1,4 +1,4 @@
-import { TestHelper, TestAmounts } from '../unit-test-helper.js';
+import { TestHelper, TestAmounts } from '../../test-helper';
 import { AccountUpdate, Field, Mina, Permissions, UInt64 } from 'o1js';
 import {
   ZkUsdVault,
@@ -14,7 +14,7 @@ describe('zkUSD Vault Liquidation Test Suite', () => {
   const testHelper = new TestHelper();
 
   before(async () => {
-    await testHelper.initChain();
+    await testHelper.initLocalChain();
     await testHelper.deployTokenContracts();
     testHelper.createAgents(['alice', 'bob', 'charlie', 'dave', 'rewards']);
 
