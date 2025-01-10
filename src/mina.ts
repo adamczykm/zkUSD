@@ -1,6 +1,7 @@
-import { Mina, Lightnet, UInt32 } from 'o1js';
+import { Mina, Lightnet, UInt32, PublicKey, Field, fetchAccount } from 'o1js';
 import { MinaNetwork, Local, Lightnet as LightnetNetwork } from './networks.js';
 import { KeyPair } from './types.js';
+import { ensureLightnetRunning } from './utils/lightnet-boot-script.js';
 
 /**
  * This type captures whatever methods come back from `Mina.Network()`.
@@ -79,6 +80,8 @@ export class MinaChainInstance implements MinaApi {
 
   public local?: LocalOnlyApi;
 
+  public fee: number = 0;
+
   // We "declare" each property from MinaApi so TS knows we implement them.
   declare transaction: MinaApi['transaction'];
   declare currentSlot: MinaApi['currentSlot'];
@@ -115,6 +118,7 @@ export class MinaChainInstance implements MinaApi {
 
   // ----------- Init/connect to the lightnet -----------
   async initLightnet(): Promise<void> {
+    await ensureLightnetRunning();
     const ln = new LightnetChain();
     await ln.init();
 
@@ -124,6 +128,15 @@ export class MinaChainInstance implements MinaApi {
     Mina.setActiveInstance(this.instance);
 
     this.bindMethods();
+    this.fee = 0.001e9;
+  }
+  // ----
+
+  async getAccountNonce(publicKey: string | PublicKey, tokenId?: Field): Promise<bigint> {
+    const pk = typeof publicKey === 'string' ? PublicKey.fromBase58(publicKey) : publicKey;
+    await fetchAccount({ publicKey: pk});
+    const account = this.getAccount(pk, tokenId);
+    return account.nonce.toBigint();
   }
 
   // ----------- Extra “backend” methods -----------

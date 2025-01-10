@@ -80,6 +80,8 @@ export async function deploy(
 
   console.log('Creating Protocol Admin account');
 
+  let nonce = await currentNetwork.getAccountNonce(deployer.publicKey);
+  let createAdminAccountTx;
   try {
     const adminAccount = (
       await fetchAccount({ publicKey: networkKeys.protocolAdmin.publicKey })
@@ -87,7 +89,7 @@ export async function deploy(
     if (!adminAccount) throw new Error('Protocol Admin account not found');
     console.log('Protocol Admin account already created');
   } catch {
-    await transaction(
+    createAdminAccountTx = await transaction(
       deployer,
       async () => {
         AccountUpdate.fundNewAccount(deployer.publicKey, 1);
@@ -96,6 +98,7 @@ export async function deploy(
       {
         extraSigners: [networkKeys.protocolAdmin.privateKey],
         fee,
+        nonce: nonce++
       }
     );
   }
@@ -111,6 +114,8 @@ export async function deploy(
 
   console.log('Checking Token contract');
 
+  let tokenAndEngineDeployTx = null;
+
   try {
     const tokenAccount = (
       await fetchAccount({ publicKey: networkKeys.token.publicKey })
@@ -119,7 +124,7 @@ export async function deploy(
     console.log('Token contract already deployed');
   } catch {
     console.log('Not found - deploying Token contract');
-    await transaction(
+    tokenAndEngineDeployTx = await transaction(
       deployer,
       async () => {
         AccountUpdate.fundNewAccount(deployer.publicKey, 3);
@@ -142,6 +147,7 @@ export async function deploy(
           networkKeys.evenOraclePriceTracker.privateKey,
         ],
         fee,
+        nonce: nonce++
       }
     );
   }
@@ -150,12 +156,17 @@ export async function deploy(
 
   console.log('Initializing Engine contract');
 
+  let engineInitializeTx = null;
   try {
-    const engineAccount = (
-      await fetchAccount({ publicKey: networkKeys.engine.publicKey })
+    const masterOracleAccount = (
+      await fetchAccount({
+        publicKey: networkKeys.masterOracle.publicKey,
+        tokenId: engine.contract.deriveTokenId(),
+      })
     ).account;
-    if (!engineAccount) throw new Error('Engine contract not found');
-    console.log('Engine contract already deployed');
+    if (!masterOracleAccount)
+      throw new Error('Master Oracle contract not initialised');
+    console.log('Engine already initialised');
   } catch {
     await transaction(
       deployer,
@@ -172,8 +183,17 @@ export async function deploy(
           networkKeys.oddOraclePriceTracker.privateKey,
         ],
         fee,
+        nonce: nonce++
       }
     );
+  }
+
+  for(let tx of [createAdminAccountTx, tokenAndEngineDeployTx, engineInitializeTx]){
+    const txResult = await tx?.safeWait();
+    if (txResult && txResult.status !== 'included') {
+      console.log('Transaction failed with status', txResult.toPretty());
+      throw new Error(`Transaction failed with status ${txResult.status}`);
+    }
   }
 
   return {

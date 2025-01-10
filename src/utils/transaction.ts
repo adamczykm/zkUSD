@@ -6,6 +6,7 @@ interface TransactionOptions {
   extraSigners?: PrivateKey[];
   fee?: number;
   printAccountUpdates?: boolean;
+  nonce?: bigint;
 }
 
 export async function transaction(
@@ -14,16 +15,18 @@ export async function transaction(
   options: TransactionOptions = {}
 ) {
   const {
-    printTx = false,
+    printTx = true,
     extraSigners = [],
     fee,
     printAccountUpdates = false,
+    nonce
   } = options;
 
   const tx = await Mina.transaction(
     {
       sender: sender.publicKey,
       ...(fee && { fee }),
+      ...(nonce && { nonce: Number(nonce) })
     },
     callback
   );
@@ -70,11 +73,11 @@ export async function transaction(
   await tx.prove();
   tx.sign([sender.privateKey, ...extraSigners]);
   const sentTx = await tx.send();
-  const txResult = await sentTx.wait();
-  if (txResult.status !== 'included') {
-    console.log('Transaction failed with status', txResult.toPretty());
-    throw new Error(`Transaction failed with status ${txResult.status}`);
-  }
+  // const txResult = await sentTx.wait();
+  // if (txResult.status !== 'included') {
+  //   console.log('Transaction failed with status', txResult.toPretty());
+  //   throw new Error(`Transaction failed with status ${txResult.status}`);
+  // }
 
-  return txResult;
+  return sentTx;
 }
