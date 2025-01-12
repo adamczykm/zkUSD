@@ -1,4 +1,4 @@
-import { AccountUpdate, Bool, Field, PrivateKey, PublicKey, UInt64, fetchAccount } from "o1js";
+import { AccountUpdate, Bool, Field, PendingTransaction, PrivateKey, PublicKey, UInt64, fetchAccount } from "o1js";
 import { ZkUsdVault } from "../contracts/zkusd-vault.js";
 import { ZkUsdEngineContract } from "../contracts/zkusd-engine.js";
 import { ZkUsdMasterOracle } from "../contracts/zkusd-master-oracle.js";
@@ -6,7 +6,7 @@ import { ContractInstance, KeyPair, OracleWhitelist } from "../types.js";
 import { FungibleTokenContract } from "@minatokens/token";
 import { MinaChain } from "../mina.js";
 import { NetworkKeyPairs, getNetworkKeys } from "../config/keys.js";
-import { transaction } from "../utils/transaction.js";
+import { transaction, waitForInclusion } from "../utils/transaction.js";
 import { deploy } from "../deploy.js";
 
 export class TestAmounts {
@@ -189,24 +189,16 @@ export class TestHelper {
       }
     );
 
-    const txs = [createOraclesTx, updateOracleWhiteListTx, depositOracleFundsTx]
+    await waitForInclusion([
+      ["createOraclesTx", createOraclesTx],
+      ["updateOracleWhiteListTx", updateOracleWhiteListTx],
+      ["depositOracleFundsTx", depositOracleFundsTx]]);
 
-    console.log('Waiting for transactions to be included')
-    for (const tx of txs) {
-      if (!tx) continue;
-      const txResult = await tx.safeWait();
-      if (txResult.status !== 'included') {
-        console.log('Transaction failed with status', txResult.status);
-        console.log('Error list:');
-        for (const err of txResult.errors) {
-          console.log(err);
-        }
-        throw new Error(`Transaction failed with status ${txResult.status}`);
-      }
-    }
+    console.log('Ready for testing. All transactions included on the chain');
   }
 
   async createAgents(names: string[]) {
+    console.log('Creating agents: ', names);
     for (const name of names) {
       const keys = await this.chain.newAccount();
       this.agents[name] = { keys };
@@ -214,6 +206,8 @@ export class TestHelper {
   }
 
   async createVaults(names: string[]) {
+    console.log('Creating vaults for: ', names);
+    const txs: Record<string, PendingTransaction> = {};
     for (const name of names) {
       if (!this.agents[name]) {
         throw new Error(`Agent ${name} not found`);
@@ -230,7 +224,7 @@ export class TestHelper {
         privateKey: vaultKeyPair.privateKey,
       };
 
-      await transaction(
+      const tx = await transaction(
         this.agents[name].keys,
         async () => {
           AccountUpdate.fundNewAccount(this.agents[name].keys.publicKey, 2);
@@ -243,7 +237,10 @@ export class TestHelper {
           extraSigners: [this.agents[name].vault!.privateKey],
         }
       );
+      txs[name] = tx;
     }
+
+    await waitForInclusion(Object.entries(txs));
   }
 
 

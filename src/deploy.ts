@@ -12,12 +12,13 @@ import {
   AccountUpdate,
   Bool,
   fetchAccount,
+  PendingTransaction,
   UInt32,
   UInt64,
   UInt8,
 } from 'o1js';
 import { ContractInstance, KeyPair } from './types.js';
-import { transaction } from './utils/transaction.js';
+import { transaction, waitForInclusion } from './utils/transaction.js';
 
 interface DeployedContracts {
   token: ContractInstance<ReturnType<typeof FungibleTokenContract>>;
@@ -72,7 +73,7 @@ export async function deploy(
     console.log('Compiling Engine contract');
     await ZkUsdEngine.compile();
     console.log('Compiling Token contract');
-    await FungibleToken.compile();
+    await ZkUsdEngine.FungibleToken.compile();
   }
 
 
@@ -114,7 +115,7 @@ export async function deploy(
 
   console.log('Checking Token contract');
 
-  let tokenAndEngineDeployTx = null;
+  let tokenAndEngineDeployTx;
 
   try {
     const tokenAccount = (
@@ -156,7 +157,7 @@ export async function deploy(
 
   console.log('Initializing Engine contract');
 
-  let engineInitializeTx = null;
+  let engineInitializeTx;
   try {
     const masterOracleAccount = (
       await fetchAccount({
@@ -168,7 +169,7 @@ export async function deploy(
       throw new Error('Master Oracle contract not initialised');
     console.log('Engine already initialised');
   } catch {
-    await transaction(
+    engineInitializeTx = await transaction(
       deployer,
       async () => {
         AccountUpdate.fundNewAccount(deployer.publicKey, 4);
@@ -188,13 +189,13 @@ export async function deploy(
     );
   }
 
-  for(let tx of [createAdminAccountTx, tokenAndEngineDeployTx, engineInitializeTx]){
-    const txResult = await tx?.safeWait();
-    if (txResult && txResult.status !== 'included') {
-      console.log('Transaction failed with status', txResult.toPretty());
-      throw new Error(`Transaction failed with status ${txResult.status}`);
-    }
-  }
+  await waitForInclusion([
+    ["createAdminAccountTx", createAdminAccountTx],
+    ["tokenAndEngineDeployTx", tokenAndEngineDeployTx],
+    ["engineInitializeTx", engineInitializeTx],
+  ]);
+
+  console.log('Contracts deployed');
 
   return {
     token,

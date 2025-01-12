@@ -1,4 +1,4 @@
-import { Field, Mina, PrivateKey, PublicKey } from 'o1js';
+import { Field, Mina, PendingTransaction, PrivateKey, PublicKey } from 'o1js';
 import { KeyPair } from '../types';
 
 interface TransactionOptions {
@@ -61,8 +61,7 @@ export async function transaction(
     for (const au of auCount) {
       if (au.count > 1) {
         console.log(
-          `DUPLICATE AU: ${au.publicKey.toBase58()} tokenId: ${au.tokenId.toString()} count: ${
-            au.count
+          `DUPLICATE AU: ${au.publicKey.toBase58()} tokenId: ${au.tokenId.toString()} count: ${au.count
           }`
         );
       }
@@ -80,4 +79,30 @@ export async function transaction(
   // }
 
   return sentTx;
+}
+
+export async function waitForInclusion(transactions: [string, PendingTransaction | undefined][]): Promise<void> {
+  try {
+    await Promise.all(
+      transactions.map(async ([name, tx]) => {
+        if (tx) {
+          const txResult = await tx.safeWait();
+          if (txResult.status !== 'included') {
+            throw new Error(
+              `Transaction creating vault for ${name} failed: ${JSON.stringify(txResult.toPretty(), null, 2)
+              }`
+            );
+          }
+
+          console.log(`${name} included on the chain.`, txResult);
+          process.stdout.write('\n'); // Ensures a flush after each log (not sure)
+        }
+        else {
+          console.log(`${name} not necessary.`);
+        }
+      })
+    );
+  } catch (error) {
+    console.error('Error processing transactions:', error);
+  }
 }

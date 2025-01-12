@@ -1,5 +1,7 @@
-// lightnet.ts
-import { spawn } from 'child_process';
+import { ShellResult, runCommand } from './shell.js';
+
+const log = (message: string) => console.log(`[lightnet-boot] ${message}`);
+const error = (message: string) => console.error(`[lightnet-boot] ${message}`);
 
 export interface LightnetOptions {
   /**
@@ -13,187 +15,146 @@ export interface LightnetOptions {
   maxWaitTimeSeconds?: number;
 }
 
-/**
- * A helper function to run a shell command (e.g. "zk lightnet start")
- * and gather output. Returns a Promise that resolves with the exit code,
- * stdout, and stderr.
- */
-async function runCommand(
-  command: string,
-  args: string[]
-): Promise<{ code: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    let stdout = '';
-    let stderr = '';
+export enum LightnetStatus {
+  Running = 'Running',
+  NotReady = 'NotReady',     // Code=1
+  NotYetRun = 'NotYetRun',   // Code=0 but "Exit code: 137"
+  KilledByOOM = 'KilledByOOM', // Code=0 "Killed by OOM: true"
+  GeneralNotRunning = 'GeneralNotRunning', // Code=0 but "Is running: false"
+  Unknown = 'Unknown',       // Any other situation
+}
 
-    const child = spawn(command, args, {
-      stdio: ['ignore', 'pipe', 'pipe'], // ignore stdin, collect stdout/stderr
-      shell: false,
-    });
-
-    child.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('error', (err) => {
-      // This event fires if the command itself couldn't be spawned
-      // (e.g. "zk" is not in PATH).
-      reject(err);
-    });
-
-    child.on('close', (code) => {
-      resolve({ code, stdout, stderr });
-    });
-  });
+export interface LightnetStatusResult {
+  status: LightnetStatus;
+  raw: ShellResult;
 }
 
 /**
- * Starts the lightnet if it’s not already started, then waits until it is ready,
- * blocking further execution until successful or until timeout.
- *
- * The logic is:
- * 1. Check "zk lightnet status":
- *    - code = 0 => might be up, or might have exited. Check output:
- *         - If "Is running: false" => treat as error => lightnet not running
- *         - Otherwise => already up => done
- *    - code = 1 => not ready => run "zk lightnet start", then poll status
- *    - otherwise => treat as error
- * 2. When running "zk lightnet start":
- *    - code = 127 => "zk" not found => throw error
- *    - code != 0 => treat as error
- *    - code = 0 => poll "zk lightnet status" until code = 0 and "Is running: true"
- *      or we time out.
+ * Calls "zk lightnet status" and returns a structured LightnetStatusResult.
  */
-export async function ensureLightnetRunning(
-  options: LightnetOptions = {}
-): Promise<void> {
+export async function checkLightnetStatus(): Promise<LightnetStatusResult> {
+  const raw = await runCommand('zk', ['lightnet', 'status']);
+  const exitCode = raw.code ?? -1;
 
-  console.log('[lightnet-boot] Checking current status: "zk lightnet status"');
-  const initialStatus = await runCommand('zk', ['lightnet', 'status']);
-  const initialCode = initialStatus.code ?? -1;
-  const initialOut = initialStatus.stdout;
+  // Map the exit code to a basic status
+  if (exitCode === 1) return { status: LightnetStatus.NotReady, raw };
+  if (exitCode !== 0) return { status: LightnetStatus.Unknown, raw };
 
-  // Check the code first
-  if (initialCode === 0) {
-    // The lightnet might be running OR might have exited but the command exited cleanly (0).
-    if (isLightnetNotRunning(initialOut)) {
-      // "Is running: false" means it's actually not running.
-      console.error('[lightnet-boot] Lightnet is not running, but status returned code 0.');
-      console.error('[lightnet-boot] stdout:', initialOut);
-      console.error('[lightnet-boot] stderr:', initialStatus.stderr);
-      throw new Error('Lightnet is not running (exited). Cannot proceed.');
-    } else {
-      // "Is running: true" or at least not "Is running: false"
-      console.log('[lightnet-boot] Lightnet is already running (status code 0).');
+  // Analyze output for specific conditions if exitCode === 0
+  const conditions = [
+    { condition: raw.stdout.includes('Is running: true'), status: LightnetStatus.Running },
+    { condition: raw.stdout.includes('Exit code: 137'), status: LightnetStatus.NotYetRun },
+    { condition: raw.stdout.includes('Killed by OOM: true'), status: LightnetStatus.KilledByOOM },
+    { condition: raw.stdout.includes('Is running: false'), status: LightnetStatus.GeneralNotRunning },
+  ];
+
+  for (const { condition, status } of conditions) {
+    if (condition) return { status, raw };
+  }
+
+  // Default to Unknown if no conditions match
+  return { status: LightnetStatus.Unknown, raw };
+}
+
+/**
+ * Runs "zk lightnet start". Handles errors and returns the ShellResult.
+ */
+export async function startLightnet(): Promise<ShellResult> {
+  log('Starting the lightnet: "zk lightnet start"');
+  const result = await runCommand('zk', ['lightnet', 'start']);
+
+  if (result.code === 127) {
+    error('The "zk" command was not found in PATH. Ensure `zkapp-cli` is installed.');
+    throw new Error('Missing "zk" command (exit code 127).');
+  }
+
+  if (result.code !== 0) {
+    error(`"zk lightnet start" finished with code: ${result.code}`);
+    error(`stdout: ${result.stdout}`);
+    error(`stderr: ${result.stderr}`);
+    throw new Error(`"zk lightnet start" did not succeed (code ${result.code}).`);
+  }
+
+  return result;
+}
+
+/**
+ * Waits for the lightnet to be ready by polling "zk lightnet status".
+ */
+async function waitForLightnetReady(options: LightnetOptions): Promise<void> {
+  const { pollIntervalSeconds = 5, maxWaitTimeSeconds = 60 } = options;
+  const startTime = Date.now();
+  const maxWaitTimeMs = maxWaitTimeSeconds * 1000;
+  const pollIntervalMs = pollIntervalSeconds * 1000;
+
+  log('Waiting for Lightnet to become ready...');
+
+  while (Date.now() - startTime < maxWaitTimeMs) {
+    const status = await checkLightnetStatus();
+
+    if (status.status === LightnetStatus.Running) {
+      log('Lightnet is now running!');
       return;
     }
-  }
 
-  if (initialCode === 1) {
-    // Not ready => attempt to start
-    console.log('[lightnet-boot] Lightnet not ready (status code 1). Attempting to start...');
-    await startLightnetAndWait(options);
-    return;
-  }
+    const notReadyStatuses = [LightnetStatus.NotReady, LightnetStatus.NotYetRun, LightnetStatus.GeneralNotRunning];
 
-  // Any other non-zero exit code means an error from "zk lightnet status"
-  console.error(
-    `[lightnet-boot] "zk lightnet status" failed with code: ${initialCode}`
-  );
-  console.error('[lightnet-boot] stdout:', initialOut);
-  console.error('[lightnet-boot] stderr:', initialStatus.stderr);
-  throw new Error(`Unexpected code from "zk lightnet status": ${initialCode}`);
-}
-
-/**
- * Run "zk lightnet start", wait for it to terminate, then poll status
- * until ready (i.e. status code = 0 and "Is running: true") or we time out.
- */
-async function startLightnetAndWait(options: LightnetOptions) {
-  const {
-    pollIntervalSeconds = 5,
-    maxWaitTimeSeconds = 300,
-  } = options;
-
-  console.log('[lightnet-boot] Starting the lightnet: "zk lightnet start"');
-  const startResult = await runCommand('zk', ['lightnet', 'start']);
-
-  // Handle exit code of the start command
-  if (startResult.code === 127) {
-    console.error('[lightnet-boot] The "zk" command was not found in PATH.');
-    console.error('[lightnet-boot] stderr:', startResult.stderr);
-    throw new Error('Missing "zk" command (exit code 127).');
-  } else if (startResult.code !== 0) {
-    console.error(
-      `[lightnet-boot] "zk lightnet start" finished with code: ${startResult.code}`
-    );
-  }
-
-  console.log('[lightnet-boot] "zk lightnet start" completed. Proceeding to poll status...');
-
-  const startTime = Date.now();
-  const pollIntervalMs = pollIntervalSeconds * 1000;
-  const maxWaitTimeMs = maxWaitTimeSeconds * 1000;
-
-  // Poll in a loop
-  while (true) {
-    const statusResult = await runCommand('zk', ['lightnet', 'status']);
-    const statusCode = statusResult.code ?? -1;
-    const statusOut = statusResult.stdout;
-    const elapsed = Date.now() - startTime;
-
-    // status code = 0 => either running or exited
-    if (statusCode === 0) {
-      if (isLightnetNotRunning(statusOut)) {
-        // "Is running: false" => means it has exited
-        console.error('[lightnet-boot] Lightnet is not running (exited) despite code 0.');
-        console.error('[lightnet-boot] stdout:', statusOut);
-        console.error('[lightnet-boot] stderr:', statusResult.stderr);
-        throw new Error('Lightnet has exited. Could not start properly.');
-      } else {
-        // Running
-        console.log('[lightnet-boot] Lightnet is up and running!');
-        break;
-      }
-    }
-
-    // code = 1 => Not ready yet => keep polling
-    if (statusCode === 1) {
-      if (elapsed > maxWaitTimeMs) {
-        console.error('[lightnet-boot] Timed out waiting for the lightnet to be ready.');
-        console.error('[lightnet-boot] Last stdout:', statusOut);
-        console.error('[lightnet-boot] Last stderr:', statusResult.stderr);
-        throw new Error('Timeout: Lightnet not ready within the allotted time.');
-      }
-      console.log(
-        `[lightnet-boot] Lightnet not ready (status code 1). Will retry in ${pollIntervalSeconds}s...`
-      );
+    if (notReadyStatuses.includes(status.status)) {
+      log(`Lightnet not ready yet. Retrying in ${pollIntervalSeconds} seconds...`);
       await sleep(pollIntervalMs);
       continue;
     }
 
-    // Any other non-zero code is treated as an error
-    console.error(
-      `[lightnet-boot] Unexpected exit code from "zk lightnet status": ${statusCode}`
-    );
-    console.error('[lightnet-boot] stdout:', statusOut);
-    console.error('[lightnet-boot] stderr:', statusResult.stderr);
-    throw new Error(`Failed to get a valid status (code: ${statusCode}).`);
+    error(`Unexpected status while waiting for readiness: ${status.status}`);
+    throw new Error(`Lightnet readiness failed with status: ${status.status}`);
   }
-}
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  error('Timed out while waiting for Lightnet to become ready.');
+  throw new Error('Timeout: Lightnet did not become ready within the allotted time.');
 }
 
 /**
- * Checks status output for the substring "Is running: false".
- * Returns `true` if the substring is found, indicating Lightnet is NOT running.
+ * Ensures Lightnet is running, starting it if necessary.
  */
-function isLightnetNotRunning(statusOutput: string): boolean {
-  return statusOutput.includes('Is running: false');
+export async function ensureLightnetRunning(
+  options: LightnetOptions = {}
+): Promise<void> {
+  log('Checking current status: "zk lightnet status"');
+  const initialStatus = await checkLightnetStatus();
+
+  switch (initialStatus.status) {
+    case LightnetStatus.Running:
+      log('Lightnet is already running.');
+      return;
+
+    case LightnetStatus.NotReady:
+      log('Lightnet not ready. Polling for readiness.');
+      await waitForLightnetReady(options);
+      return;
+
+    case LightnetStatus.NotYetRun:
+    case LightnetStatus.GeneralNotRunning:
+      log('Lightnet is not running. Starting and waiting for readiness...');
+      await startLightnet();
+      await waitForLightnetReady(options);
+      return;
+
+    case LightnetStatus.KilledByOOM:
+      error('Lightnet was killed by OOM. Not attempting to restart.');
+      throw new Error('Lightnet was killed by OOM.');
+
+    case LightnetStatus.Unknown:
+    default:
+      error(`Unexpected status: ${initialStatus.status}`);
+      log(`stdout: ${initialStatus.raw.stdout}`);
+      log(`stderr: ${initialStatus.raw.stderr}`);
+      throw new Error(`Unexpected status from "zk lightnet status": ${initialStatus.status}`);
+  }
+}
+
+/**
+ * Sleeps for a given number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

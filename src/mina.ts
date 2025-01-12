@@ -134,7 +134,10 @@ export class MinaChainInstance implements MinaApi {
 
   async getAccountNonce(publicKey: string | PublicKey, tokenId?: Field): Promise<bigint> {
     const pk = typeof publicKey === 'string' ? PublicKey.fromBase58(publicKey) : publicKey;
-    await fetchAccount({ publicKey: pk});
+    const {account:_, error} =  await fetchAccount({ publicKey: pk});
+    if (error) {
+      throw new Error(`Failed to fetch account: ${error}`);
+    }
     const account = this.getAccount(pk, tokenId);
     return account.nonce.toBigint();
   }
