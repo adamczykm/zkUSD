@@ -135,8 +135,8 @@ class LiquidationResults extends Struct({
 
 class MinaPrice extends Struct({
   priceNanoUSD: UInt64,
-  firstValidBlock: UInt64,
-  lastValidBlock: UInt64,
+  firstValidBlockHeight: UInt32,
+  lastValidBlockHeight: UInt32,
 }) {}
 
 export {

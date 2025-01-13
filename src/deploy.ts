@@ -16,6 +16,7 @@ import {
 } from 'o1js';
 import { ContractInstance, KeyPair } from './types.js';
 import { transaction } from './utils/transaction.js';
+import { ProveMinaPriceProgram } from './proofs/mina-price-proof.js';
 
 interface DeployedContracts {
   token: ContractInstance<ReturnType<typeof FungibleTokenContract>>;
@@ -33,10 +34,13 @@ export async function deploy(
 
   const networkKeys = getNetworkKeys(chainId);
 
+  const minaPriceProofProgramVk = await ProveMinaPriceProgram.compile();
+
   const ZkUsdEngine = ZkUsdEngineContract(
     {
       oracleFundTrackerAddress: networkKeys.oracleFundsTracker.publicKey,
       zkUsdTokenAddress: networkKeys.token.publicKey,
+      minaPriceInputZkProgramVkHash: minaPriceProofProgramVk.verificationKey.hash,
     }
   );
   const FungibleToken = FungibleTokenContract(ZkUsdEngine);

@@ -46,6 +46,7 @@ import {
   LiquidateEvent,
   VaultOwnerUpdatedEvent,
 } from '../events.js';
+import { MinaPriceInput, MinaPriceProofPublicOutput, verifyMinaPriceInput as verifyMinaPriceInputProof } from '../proofs/mina-price-proof.js';
 
 /**
  * @title   zkUSD Engine contract
@@ -83,11 +84,12 @@ export function ZkUsdEngineContract(
   args:{
   oracleFundTrackerAddress: PublicKey,
   zkUsdTokenAddress: PublicKey,
+  minaPriceInputZkProgramVkHash: Field
   }
 ) {
-  const { oracleFundTrackerAddress, zkUsdTokenAddress } = args;
+  const { oracleFundTrackerAddress, zkUsdTokenAddress, minaPriceInputZkProgramVkHash} = args;
   class ZkUsdEngine extends TokenContract implements FungibleTokenAdminBase {
-    @state(Field) oracleWhitelistHash = State<Field>(); // Hash of the oracle whitelist
+    @state(Field) oracleWhitelistRoot = State<Field>(); // Merkle root of the oracle whitelist
     @state(ProtocolDataPacked) protocolDataPacked = State<ProtocolDataPacked>();
     @state(Field) vaultVerificationKeyHash = State<Field>(); // Hash of the vault verification key
     @state(Bool) interactionFlag = State<Bool>(); // Flag to prevent reentrancy
@@ -129,7 +131,7 @@ export function ZkUsdEngineContract(
         send: Permissions.proof(),
       });
 
-      this.oracleWhitelistHash.set(Field.from(0));
+      this.oracleWhitelistRoot.set(Field.from(0));
 
       this.protocolDataPacked.set(
         ProtocolData.new({
@@ -400,16 +402,48 @@ export function ZkUsdEngineContract(
     }
 
     /**
+     * @notice  Verifies the Mina price input proof against contract data.
+     * @param   minaPriceInput The Mina price input proof
+      * @returns The verified Mina price. If the proof is invalid, this function will throw an error.
+     */
+    verifyMinaPriceInput(minaPriceInput: MinaPriceInput): MinaPriceProofPublicOutput {
+      const firstValidBlockHeight = this.network.blockchainLength.get()
+      // TODO how to constrain?
+
+      const lastValidBlockHeight = firstValidBlockHeight.add(1);
+      // Verify the sender is in the whitelist
+      verifyMinaPriceInputProof({
+        input: minaPriceInput,
+        oracleWhitelistRoot: this.oracleWhitelistRoot.getAndRequireEquals(),
+        proofVkHash: minaPriceInputZkProgramVkHash,
+        firstValidBlockHeight,
+        lastValidBlockHeight,
+      });
+      return minaPriceInput.proof.publicOutput;
+    }
+
+    // TODO
+    incentivizeOracle(oracle: PublicKey) {
+      const fee = this.getOracleFee();
+    }
+
+    /**
      * @notice  Redeems collateral from a vault
      * @param   vaultAddress The address of the vault to redeem collateral from
      * @param   amount The amount of collateral to redeem
      */
-    @method async redeemCollateral(vaultAddress: PublicKey, amount: UInt64, minaPrice: MinaPrice) {
+    @method async redeemCollateral(vaultAddress: PublicKey, amount: UInt64, minaPriceInput: MinaPriceInput) {
       //Get the vault
       const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
       //Get the owner of the collateral
       const owner = this.sender.getAndRequireSignature();
+
+      // verify the price input
+      const {minaPrice, incentivizedOracle} = this.verifyMinaPriceInput(minaPriceInput);
+
+      // incentivize the oracle that provided the valid price
+      this.incentivizeOracle(incentivizedOracle);
 
       //Redeem the collateral
       const { collateralAmount, debtAmount } = await vault.redeemCollateral(
@@ -449,7 +483,7 @@ export function ZkUsdEngineContract(
      * @param   vaultAddress The address of the vault to mint zkUSD for
      * @param   amount The amount of zkUSD to mint
      */
-    @method async mintZkUsd(vaultAddress: PublicKey, amount: UInt64, minaPrice: MinaPrice) {
+    @method async mintZkUsd(vaultAddress: PublicKey, amount: UInt64, minaPriceInput: MinaPriceInput) {
       //Get the vault
       const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
@@ -458,6 +492,12 @@ export function ZkUsdEngineContract(
 
       //Get the owner of the zkUSD
       const owner = this.sender.getAndRequireSignature();
+
+      // verify the price input
+      const {minaPrice, incentivizedOracle} = this.verifyMinaPriceInput(minaPriceInput);
+
+      // incentivize the oracle that provided the valid price
+      this.incentivizeOracle(incentivizedOracle);
 
       //Manage the debt in the vault
       const { collateralAmount, debtAmount } = await vault.mintZkUsd(
@@ -529,7 +569,7 @@ export function ZkUsdEngineContract(
      *          plus a bonus. The rest is sent to the vault owner.
      * @param   vaultAddress The address of the vault to liquidate
      */
-    @method async liquidate(vaultAddress: PublicKey, minaPrice: MinaPrice) {
+    @method async liquidate(vaultAddress: PublicKey, minaPriceInput: MinaPriceInput) {
       //Get the vault
       const vault = new ZkUsdVault(vaultAddress, this.deriveTokenId());
 
@@ -543,6 +583,12 @@ export function ZkUsdEngineContract(
 
       // Get the vault owner
       const vaultOwner = vault.owner.getAndRequireEquals();
+
+      // verify the price input
+      const {minaPrice, incentivizedOracle} = this.verifyMinaPriceInput(minaPriceInput);
+
+      // incentivize the oracle that provided the valid price
+      this.incentivizeOracle(incentivizedOracle);
 
       const { oldVaultState, liquidatorCollateral, vaultOwnerCollateral } =
         await vault.liquidate(minaPrice);
@@ -631,12 +677,12 @@ export function ZkUsdEngineContract(
     }
 
     /**
-     * @notice  Updates the oracle whitelist hash
-     * @param   whitelist The new oracle whitelist
+     * @notice  Updates the oracle whitelist merkle root
+     * @param   whitelist The new oracle whitelist merkle root
      */
     @method async updateOracleWhitelist(whitelist: OracleWhitelist) {
       //Precondition
-      const previousHash = this.oracleWhitelistHash.getAndRequireEquals();
+      const previousHash = this.oracleWhitelistRoot.getAndRequireEquals();
 
       //Ensure admin signature
       await this.ensureAdminSignature();
@@ -644,12 +690,19 @@ export function ZkUsdEngineContract(
       const updatedWhitelistHash = Poseidon.hash(
         OracleWhitelist.toFields(whitelist)
       );
-      this.oracleWhitelistHash.set(updatedWhitelistHash);
+      this.oracleWhitelistRoot.set(updatedWhitelistHash);
 
       this.emitEvent('OracleWhitelistUpdated', {
         previousHash,
         newHash: updatedWhitelistHash,
       });
+    }
+
+    async getOracleFee(){
+      const protocolData = ProtocolData.unpack(
+        this.protocolDataPacked.getAndRequireEquals()
+      );
+      return protocolData.oracleFlatFee;
     }
 
     /**
@@ -674,6 +727,8 @@ export function ZkUsdEngineContract(
         newFee: fee,
       });
     }
+
+
 
     /**
      * @notice  Updates the admin public key
@@ -734,32 +789,6 @@ export function ZkUsdEngineContract(
       this.interactionFlag.requireEquals(Bool(true));
       this.interactionFlag.set(Bool(false));
       return Bool(true);
-    }
-
-    /**
-     * @notice  Validates the sender is in the whitelist. The whitelist hash is maintained in the protocol vault.
-     * @param   submitter The sender
-     * @param   whitelist The whitelist
-     */
-    async validateWhitelist(submitter: PublicKey, whitelist: OracleWhitelist) {
-      //Gets the current whitelist hash from the protocol vault
-      const whitelistHash = this.oracleWhitelistHash.getAndRequireEquals();
-
-      //Ensure the whitelist hash matches the submitted whitelist
-      whitelistHash.assertEquals(
-        Poseidon.hash(OracleWhitelist.toFields(whitelist)),
-        ZkUsdEngineErrors.INVALID_WHITELIST
-      );
-
-      //Check if the sender is in the whitelist
-      let isWhitelisted = Bool(false);
-      for (let i = 0; i < whitelist.addresses.length; i++) {
-        isWhitelisted = isWhitelisted.or(
-          submitter.equals(whitelist.addresses[i])
-        );
-      }
-
-      isWhitelisted.assertTrue(ZkUsdEngineErrors.SENDER_NOT_WHITELISTED);
     }
 
     //   FUNGIBLE TOKEN ADMIN FUNCTIONS
